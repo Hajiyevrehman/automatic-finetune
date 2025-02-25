@@ -1,0 +1,17 @@
+training:
+  batch_size: 8
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  epochs: 3
+  warmup_steps: 100
+  save_steps: 500
+  eval_steps: 500
+  logging_steps: 100
+
+optimizer:
+  type: "adamw"
+  weight_decay: 0.01
+
+scheduler:
+  type: "cosine"
+  num_cycles: 1

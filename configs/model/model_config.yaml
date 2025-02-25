@@ -1,0 +1,14 @@
+model:
+  base_model: "huggingface/llama-7b"
+  model_type: "causal_lm"
+
+lora:
+  r: 8
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "v_proj"]
+
+quantization:
+  bits: 4
+  group_size: 128
+  use_double_quant: true

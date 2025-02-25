@@ -1,0 +1,5 @@
+# Ignore the env directory (virtual environment)
+env/
+
+# Ignore the data directory (datasets, files, etc.)
+data/

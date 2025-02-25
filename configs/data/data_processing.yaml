@@ -1,0 +1,10 @@
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  validation_dir: "data/validation"
+
+processing:
+  max_length: 512
+  tokenizer: "gpt2"
+  validation_split: 0.1
+  seed: 42
