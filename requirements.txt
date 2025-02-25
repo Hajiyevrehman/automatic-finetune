@@ -1,0 +1,28 @@
+# Core dependencies
+torch>=2.0.0
+transformers>=4.34.0
+datasets>=2.14.0
+peft>=0.5.0
+bitsandbytes>=0.41.0
+accelerate>=0.23.0
+trl>=0.7.2
+
+# Data versioning and experiment tracking
+dvc>=3.15.0
+dvc[s3]>=3.15.0  # Add specific cloud provider as needed
+mlflow>=2.8.0
+
+# API and serving
+fastapi>=0.103.1
+pydantic>=2.4.2
+uvicorn>=0.23.2
+
+# Infrastructure
+python-dotenv>=1.0.0
+
+# Development and testing
+pytest>=7.4.2
+black>=23.9.1
+isort>=5.12.0
+pylint>=3.0.1
+pre-commit>=3.5.0
