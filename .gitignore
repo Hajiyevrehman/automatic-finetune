@@ -2,4 +2,4 @@
 env/
 
 # Ignore the data directory (datasets, files, etc.)
-data/
+#/data/

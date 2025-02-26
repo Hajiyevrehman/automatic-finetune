@@ -1,0 +1,36 @@
+{
+    "paths": {
+      "raw_data": "data/raw",
+      "processed_data": "data/processed",
+      "validation_data": "data/validation"
+    },
+    "preprocessing": {
+      "text_normalization": {
+        "lowercase": false,
+        "remove_special_chars": false
+      }
+    },
+    "tokenization": {
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "max_length": 512,
+      "truncation": true,
+      "padding": "max_length"
+    },
+    "validation": {
+      "min_question_length": 5,
+      "max_question_length": 1000,
+      "min_answer_length": 5,
+      "max_answer_length": 10000
+    },
+    "splits": {
+      "train_ratio": 0.8,
+      "val_ratio": 0.1,
+      "test_ratio": 0.1,
+      "shuffle": true
+    },
+    "dataloader": {
+      "batch_size": 8,
+      "shuffle": true,
+      "num_workers": 4
+    }
+  }
