@@ -1,17 +1,80 @@
-training:
-  batch_size: 8
-  gradient_accumulation_steps: 4
-  learning_rate: 2.0e-5
-  epochs: 3
-  warmup_steps: 100
-  save_steps: 500
-  eval_steps: 500
-  logging_steps: 100
+# Training Configuration for Qwen2.5 LoRA Fine-tuning
 
-optimizer:
-  type: "adamw"
+# Base model configuration
+model:
+  base_model_name: "Qwen/Qwen2.5-7B-Instruct"
+  model_max_length: 2048
+  load_in_8bit: false
+  load_in_4bit: false
+  trust_remote_code: true
+  use_flash_attention: true
+
+# LoRA configuration
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  bias: "none"
+  modules_to_save: []
+  lora_path: null
+
+# QLoRA configuration
+qlora:
+  use_qlora: false
+  bits: 4
+  quant_type: "nf4"
+  double_quant: true
+  compute_dtype: "float16"
+
+# Training parameters
+training:
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 4
+  gradient_accumulation_steps: 8
+  num_train_epochs: 3
+  max_steps: -1
+  logging_steps: 10
+  save_steps: 500
+  eval_steps: 100
+  warmup_steps: 100
+  learning_rate: 5e-5
+  max_grad_norm: 1.0
+  lr_scheduler_type: "cosine"
   weight_decay: 0.01
 
-scheduler:
-  type: "cosine"
-  num_cycles: 1
+# Training loop settings
+settings:
+  seed: 42
+  bf16: true
+  fp16: false
+  tf32: true
+  report_to: "mlflow"
+
+# MLflow tracking settings
+mlflow:
+  experiment_name: "qwen2.5-7b-lora-finetuning"
+  run_name: null
+  tracking_uri: "http://localhost:5000"
+  registry_uri: "sqlite:///mlflow/registry.db"
+
+# Data settings
+data:
+  train_file: "s3://llm-finetuning-rahman-1234/data/processed/servicenow-qa_tokenized_train.pt"
+  validation_file: "s3://llm-finetuning-rahman-1234/data/processed/servicenow-qa_tokenized_val.pt"
+  preprocessing_num_workers: 4
+
+# Output settings
+output:
+  output_dir: "models/qwen2.5-7b-lora"
+  save_strategy: "steps"
+  s3_output_path: "s3://llm-finetuning-rahman-1234/models/"
+  hub_model_id: null
+  push_to_hub: false
