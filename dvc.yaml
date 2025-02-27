@@ -1,44 +1,65 @@
-# dvc.yaml
 stages:
-  convert:
-    cmd: python -m scripts.dataset_converter --subset_size 100 --version v1 --output_path data/raw/servicenow_qa.json
+  download:
+    cmd: >
+      python scripts/dataset_converter.py
+      --subset_size 100
+      --version v1
+      --output_path data/raw/servicenow-qa.json
     deps:
       - scripts/dataset_converter.py
     outs:
-      - data/raw/servicenow_qa.json
+      - data/raw/servicenow-qa.json
+
+
+  convert:
+    cmd: python -m src.cli.data_cli convert --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa --output servicenow-qa_converted --config configs/data/data_processing.json
+    deps:
+      - src/data/s3_pipeline.py
+      - src/cloud/storage.py
+      - data/raw/servicenow-qa.json
+      - configs/data/data_processing.json
+    outs:
+      - data/processed/servicenow-qa_converted.json
 
   preprocess:
-    cmd: python -m src.data.preprocess data/raw/servicenow_qa.json data/processed/servicenow_preprocessed.json --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli preprocess --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_converted --output servicenow-qa_preprocessed --config configs/data/data_processing.json
     deps:
-      - src/data/preprocess.py
-      - data/raw/servicenow_qa.json
+      - src/data/s3_pipeline.py
+      - src/cloud/storage.py
+      - data/processed/servicenow-qa_converted.json
       - configs/data/data_processing.json
     outs:
-      - data/processed/servicenow_preprocessed.json
+      - data/processed/servicenow-qa_preprocessed.json
 
   validate:
-    cmd: python -m src.data.validate data/processed/servicenow_preprocessed.json --output data/validation/servicenow_valid.json
+    cmd: python -m src.cli.data_cli validate --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_preprocessed --output servicenow-qa_validated --config configs/data/data_processing.json
     deps:
-      - src/data/validate.py
-      - data/processed/servicenow_preprocessed.json
-    outs:
-      - data/validation/servicenow_valid.json
-
-  tokenize:
-    cmd: python -m src.data.tokenize data/validation/servicenow_valid.json data/processed/servicenow_tokenized.json --config configs/data/data_processing.json --model Qwen/Qwen2.5-7B-Instruct
-    deps:
-      - src/data/tokenize.py
-      - data/validation/servicenow_valid.json
+      - src/data/s3_pipeline.py
+      - src/cloud/storage.py
+      - data/processed/servicenow-qa_preprocessed.json
       - configs/data/data_processing.json
     outs:
-      - data/processed/servicenow_tokenized.json
+      - data/validation/servicenow-qa_validated.json
+      - data/validation/servicenow-qa_validated_stats.json
+
+  tokenize:
+    cmd: python -m src.cli.data_cli tokenize --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_validated --output servicenow-qa_tokenized --config configs/data/data_processing.json
+    deps:
+      - src/data/s3_pipeline.py
+      - src/cloud/storage.py
+      - data/validation/servicenow-qa_validated.json
+      - configs/data/data_processing.json
+    outs:
+      - data/processed/servicenow-qa_tokenized.pt
 
   split:
-    cmd: python -m src.data.load data/processed/servicenow_tokenized.json --output_dir data/processed/splits
+    cmd: python -m src.cli.data_cli split --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_tokenized --config configs/data/data_processing.json
     deps:
-      - src/data/load.py
-      - data/processed/servicenow_tokenized.json
+      - src/data/s3_pipeline.py
+      - src/cloud/storage.py
+      - data/processed/servicenow-qa_tokenized.pt
+      - configs/data/data_processing.json
     outs:
-      - data/processed/splits/train.json
-      - data/processed/splits/val.json
-      - data/processed/splits/test.json
+      - data/processed/servicenow-qa_tokenized_train.pt
+      - data/processed/servicenow-qa_tokenized_val.pt
+      - data/processed/servicenow-qa_tokenized_test.pt

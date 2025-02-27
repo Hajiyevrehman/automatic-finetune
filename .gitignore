@@ -1,5 +1,48 @@
-# Ignore the env directory (virtual environment)
-env/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Ignore the data directory (datasets, files, etc.)
-#/data/
+# Environment
+.env
+venv/
+env/
+ENV/
+
+# Data directories (but keep .dvc files)
+/data/raw/*
+/data/processed/*
+/data/validation/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!data/validation/.gitkeep
+!*.dvc
+
+# DVC - Do NOT ignore these
+!.dvc
+!.dvc/config
+!.dvc/config.local
+!.dvcignore
+
+# Allow all DVC-related files
+!*.dvc
+
+# Logs and temporary files
+logs/
+*.log

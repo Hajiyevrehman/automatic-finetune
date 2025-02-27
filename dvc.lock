@@ -1,99 +1,153 @@
 schema: '2.0'
 stages:
   convert:
-    cmd: python -m scripts.dataset_converter --subset_size 100 --version v1 --output_path
-      data/raw/servicenow_qa.json
+    cmd: python -m src.cli.data_cli convert --bucket llm-finetuning-rahman-1234 --dataset
+      servicenow-qa --output servicenow-qa_converted --config configs/data/data_processing.json
+    deps:
+    - path: configs/data/data_processing.json
+      hash: md5
+      md5: eb823adbadc736e4cb6ad93691ff320a
+      size: 316
+    - path: data/raw/servicenow-qa.json
+      hash: md5
+      md5: bf5baddfdc1ac17e3c7ca020ce9e25a6
+      size: 1254
+    - path: src/cloud/storage.py
+      hash: md5
+      md5: adf6510c6c08a1b20f9caaee3865cd2f
+      size: 11229
+    - path: src/data/s3_pipeline.py
+      hash: md5
+      md5: 5f7e17b08ccca1c0a50ee16103d3b347
+      size: 24052
+    outs:
+    - path: data/processed/servicenow-qa_converted.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+  preprocess:
+    cmd: python -m src.cli.data_cli preprocess --bucket llm-finetuning-rahman-1234
+      --dataset servicenow-qa_converted --output servicenow-qa_preprocessed --config
+      configs/data/data_processing.json
+    deps:
+    - path: configs/data/data_processing.json
+      hash: md5
+      md5: eb823adbadc736e4cb6ad93691ff320a
+      size: 316
+    - path: data/processed/servicenow-qa_converted.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+    - path: src/cloud/storage.py
+      hash: md5
+      md5: adf6510c6c08a1b20f9caaee3865cd2f
+      size: 11229
+    - path: src/data/s3_pipeline.py
+      hash: md5
+      md5: 5f7e17b08ccca1c0a50ee16103d3b347
+      size: 24052
+    outs:
+    - path: data/processed/servicenow-qa_preprocessed.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+  validate:
+    cmd: python -m src.cli.data_cli validate --bucket llm-finetuning-rahman-1234 --dataset
+      servicenow-qa_preprocessed --output servicenow-qa_validated --config configs/data/data_processing.json
+    deps:
+    - path: configs/data/data_processing.json
+      hash: md5
+      md5: eb823adbadc736e4cb6ad93691ff320a
+      size: 316
+    - path: data/processed/servicenow-qa_preprocessed.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+    - path: src/cloud/storage.py
+      hash: md5
+      md5: adf6510c6c08a1b20f9caaee3865cd2f
+      size: 11229
+    - path: src/data/s3_pipeline.py
+      hash: md5
+      md5: 5f7e17b08ccca1c0a50ee16103d3b347
+      size: 24052
+    outs:
+    - path: data/validation/servicenow-qa_validated.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+    - path: data/validation/servicenow-qa_validated_stats.json
+      hash: md5
+      md5: ad8f00b8817fbae1bfbd4529bb6dacac
+      size: 63
+  tokenize:
+    cmd: python -m src.cli.data_cli tokenize --bucket llm-finetuning-rahman-1234 --dataset
+      servicenow-qa_validated --output servicenow-qa_tokenized --config configs/data/data_processing.json
+    deps:
+    - path: configs/data/data_processing.json
+      hash: md5
+      md5: eb823adbadc736e4cb6ad93691ff320a
+      size: 316
+    - path: data/validation/servicenow-qa_validated.json
+      hash: md5
+      md5: e7251412d42166da8e43239f922469a4
+      size: 2318
+    - path: src/cloud/storage.py
+      hash: md5
+      md5: adf6510c6c08a1b20f9caaee3865cd2f
+      size: 11229
+    - path: src/data/s3_pipeline.py
+      hash: md5
+      md5: 5f7e17b08ccca1c0a50ee16103d3b347
+      size: 24052
+    outs:
+    - path: data/processed/servicenow-qa_tokenized.pt
+      hash: md5
+      md5: 4ed664baffc69e59a411078451b3c0ef
+      size: 3744
+  split:
+    cmd: python -m src.cli.data_cli split --bucket llm-finetuning-rahman-1234 --dataset
+      servicenow-qa_tokenized --config configs/data/data_processing.json
+    deps:
+    - path: configs/data/data_processing.json
+      hash: md5
+      md5: eb823adbadc736e4cb6ad93691ff320a
+      size: 316
+    - path: data/processed/servicenow-qa_tokenized.pt
+      hash: md5
+      md5: 4ed664baffc69e59a411078451b3c0ef
+      size: 3744
+    - path: src/cloud/storage.py
+      hash: md5
+      md5: adf6510c6c08a1b20f9caaee3865cd2f
+      size: 11229
+    - path: src/data/s3_pipeline.py
+      hash: md5
+      md5: 5f7e17b08ccca1c0a50ee16103d3b347
+      size: 24052
+    outs:
+    - path: data/processed/servicenow-qa_tokenized_test.pt
+      hash: md5
+      md5: fdb776a31fb9efbf19b7cb7bdb676c9c
+      size: 1588
+    - path: data/processed/servicenow-qa_tokenized_train.pt
+      hash: md5
+      md5: a6f2c0515144b031ba96100b0e480093
+      size: 3256
+    - path: data/processed/servicenow-qa_tokenized_val.pt
+      hash: md5
+      md5: b3eba6aef2595f9049f85a19a2c85312
+      size: 1008
+  download:
+    cmd: "python scripts/dataset_converter.py --subset_size 100 --version v1 --output_path
+      data/raw/servicenow-qa.json\n"
     deps:
     - path: scripts/dataset_converter.py
       hash: md5
-      md5: 498b7c4f2b2248c4a6f820facf43cfc4
-      size: 4417
+      md5: 4bdf337ce4e6081c7a2d0dcf865c5bf6
+      size: 4405
     outs:
-    - path: data/raw/servicenow_qa.json
+    - path: data/raw/servicenow-qa.json
       hash: md5
       md5: 5024042a605f0e966c7f54beefe19185
       size: 91475
-  preprocess:
-    cmd: python -m src.data.preprocess data/raw/servicenow_qa.json data/processed/servicenow_preprocessed.json
-      --config configs/data/data_processing.json
-    deps:
-    - path: configs/data/data_processing.json
-      hash: md5
-      md5: 5dd3ba10e92f123c448b1f917befd2bd
-      size: 801
-    - path: data/raw/servicenow_qa.json
-      hash: md5
-      md5: 5024042a605f0e966c7f54beefe19185
-      size: 91475
-    - path: src/data/preprocess.py
-      hash: md5
-      md5: 111f1ab0fbf74b2a2f69ece6e4d87322
-      size: 3931
-    outs:
-    - path: data/processed/servicenow_preprocessed.json
-      hash: md5
-      md5: 7bb393a363ced8ac4bcca035806e0880
-      size: 85381
-  validate:
-    cmd: python -m src.data.validate data/processed/servicenow_preprocessed.json --output
-      data/validation/servicenow_valid.json
-    deps:
-    - path: data/processed/servicenow_preprocessed.json
-      hash: md5
-      md5: 7bb393a363ced8ac4bcca035806e0880
-      size: 85381
-    - path: src/data/validate.py
-      hash: md5
-      md5: 11bc978d867b4c11fdf1db1b11cbc07b
-      size: 5412
-    outs:
-    - path: data/validation/servicenow_valid.json
-      hash: md5
-      md5: 7bb393a363ced8ac4bcca035806e0880
-      size: 85381
-  tokenize:
-    cmd: python -m src.data.tokenize data/validation/servicenow_valid.json data/processed/servicenow_tokenized.json
-      --config configs/data/data_processing.json --model Qwen/Qwen2.5-7B-Instruct
-    deps:
-    - path: configs/data/data_processing.json
-      hash: md5
-      md5: 5dd3ba10e92f123c448b1f917befd2bd
-      size: 801
-    - path: data/validation/servicenow_valid.json
-      hash: md5
-      md5: 7bb393a363ced8ac4bcca035806e0880
-      size: 85381
-    - path: src/data/tokenize.py
-      hash: md5
-      md5: a67e06e8cff68d12ec4eb355e0abf21d
-      size: 4770
-    outs:
-    - path: data/processed/servicenow_tokenized.json
-      hash: md5
-      md5: eb66f9975e6f7e954ec85d567f137a05
-      size: 1501862
-  split:
-    cmd: python -m src.data.load data/processed/servicenow_tokenized.json --output_dir
-      data/processed/splits
-    deps:
-    - path: data/processed/servicenow_tokenized.json
-      hash: md5
-      md5: eb66f9975e6f7e954ec85d567f137a05
-      size: 1501862
-    - path: src/data/load.py
-      hash: md5
-      md5: 85d7a16f4c5879876f5290ff7ed90b6b
-      size: 6126
-    outs:
-    - path: data/processed/splits/test.json
-      hash: md5
-      md5: 8c054c59cb859b9270bc8d3ecd05f34d
-      size: 148080
-    - path: data/processed/splits/train.json
-      hash: md5
-      md5: d411af867ef18297de6fa2e65e61b025
-      size: 1204748
-    - path: data/processed/splits/val.json
-      hash: md5
-      md5: dfa8078665c4878a895323068e45da0c
-      size: 149038
