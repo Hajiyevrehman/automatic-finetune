@@ -333,8 +333,14 @@ def train(config_path):
             weight_decay=config["training"]["weight_decay"],
             warmup_ratio=config["training"]["warmup_ratio"],
             lr_scheduler_type=config["training"]["lr_scheduler"],
+            
+            # Fix the evaluation and save strategies to match
+            save_strategy="steps",
             save_steps=config["training"]["save_steps"],
+            
+            evaluation_strategy="steps",  # Must match save_strategy when load_best_model_at_end is True
             eval_steps=config["training"]["eval_steps"],
+            
             logging_steps=config["training"]["logging_steps"],
             save_total_limit=2,
             load_best_model_at_end=True,
@@ -342,6 +348,7 @@ def train(config_path):
             gradient_checkpointing=config["training"]["gradient_checkpointing"],
             report_to="mlflow",
         )
+
         
         # Initialize data collator
         data_collator = DataCollatorForLanguageModeling(
