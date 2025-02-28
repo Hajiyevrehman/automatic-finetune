@@ -9,7 +9,7 @@ import yaml
 import logging
 import argparse
 from dataclasses import dataclass, field
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any, Union, Callable
 import boto3
 from urllib.parse import urlparse
 
@@ -22,7 +22,7 @@ from transformers import (
     HfArgumentParser,
     DataCollatorForLanguageModeling,
     set_seed,
-    BitsAndBytesConfig  # Correct import for BitsAndBytesConfig
+    BitsAndBytesConfig
 )
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -99,6 +99,32 @@ def load_config(config_path):
         config = yaml.safe_load(f)
     return config
 
+def ensure_type(value, expected_type, param_name):
+    """Ensure value is of expected type, convert if possible"""
+    if isinstance(value, expected_type):
+        return value
+    
+    try:
+        if expected_type == bool:
+            if isinstance(value, str):
+                return value.lower() in ('true', 'yes', '1', 'y')
+            return bool(value)
+        return expected_type(value)
+    except (ValueError, TypeError):
+        logger.warning(f"Parameter {param_name} with value {value} couldn't be converted to {expected_type.__name__}. Using default.")
+        if expected_type == bool:
+            return False
+        elif expected_type == int:
+            return 0
+        elif expected_type == float:
+            return 0.0
+        elif expected_type == str:
+            return ""
+        elif expected_type == list:
+            return []
+        else:
+            return None
+
 def is_s3_path(path):
     """Check if a path is an S3 path"""
     return path.startswith("s3://")
@@ -150,7 +176,7 @@ def train(config_path):
     config = load_config(config_path)
     
     # Set the seed for reproducibility
-    set_seed(config["training"]["seed"])
+    set_seed(ensure_type(config["training"].get("seed", 42), int, "seed"))
     
     # Initialize accelerator
     accelerator = Accelerator()
@@ -174,13 +200,13 @@ def train(config_path):
         mlflow.log_params({f"quantization.{k}": v for k, v in quant_args_dict.items()})
         
         # Load dataset
-        logger.info(f"Loading datasets from {data_args_dict['train_file']} and {data_args_dict['validation_file']}")
+        logger.info(f"Loading datasets from {data_args_dict['train_file']} and {data_args_dict.get('validation_file', 'None')}")
         
         # Handle S3 paths if needed
         data_files = {}
         for split, file_path in {
             "train": data_args_dict["train_file"],
-            "validation": data_args_dict["validation_file"] if data_args_dict.get("validation_file") else None
+            "validation": data_args_dict.get("validation_file")
         }.items():
             if file_path is None:
                 continue
@@ -196,8 +222,8 @@ def train(config_path):
         logger.info(f"Loading tokenizer for {model_args_dict['name']}")
         tokenizer = AutoTokenizer.from_pretrained(
             model_args_dict["name"],
-            revision=model_args_dict["revision"],
-            trust_remote_code=model_args_dict["trust_remote_code"],
+            revision=model_args_dict.get("revision", "main"),
+            trust_remote_code=ensure_type(model_args_dict.get("trust_remote_code", True), bool, "trust_remote_code"),
             use_fast=True,
         )
         
@@ -223,7 +249,7 @@ def train(config_path):
             datasets = load_dataset(
                 extension, 
                 data_files=data_files,
-                num_proc=data_args_dict.get("preprocessing_num_workers", 4)
+                num_proc=ensure_type(data_args_dict.get("preprocessing_num_workers", 4), int, "preprocessing_num_workers")
             )
             
             # Tokenize datasets
@@ -232,7 +258,7 @@ def train(config_path):
                     examples[data_args_dict["text_column"]],
                     padding="max_length",
                     truncation=True,
-                    max_length=data_args_dict["max_seq_length"],
+                    max_length=ensure_type(data_args_dict.get("max_seq_length", 1024), int, "max_seq_length"),
                 )
             
             tokenized_datasets = datasets.map(
@@ -244,27 +270,30 @@ def train(config_path):
         
         # Load model with quantization if enabled
         logger.info(f"Loading model {model_args_dict['name']}")
-        if quant_args_dict["enabled"]:
-            logger.info(f"Using {quant_args_dict['bits']}-bit quantization")
+        if ensure_type(quant_args_dict.get("enabled", True), bool, "enabled"):
+            bits = ensure_type(quant_args_dict.get("bits", 4), int, "bits")
+            logger.info(f"Using {bits}-bit quantization")
+            
             # Correct usage of BitsAndBytesConfig from transformers
             bnb_config = BitsAndBytesConfig(
-                load_in_4bit=quant_args_dict["bits"] == 4,
-                load_in_8bit=quant_args_dict["bits"] == 8,
+                load_in_4bit=bits == 4,
+                load_in_8bit=bits == 8,
                 llm_int8_threshold=6.0,
                 llm_int8_has_fp16_weight=False,
                 bnb_4bit_compute_dtype=torch.float16,
-                bnb_4bit_use_double_quant=quant_args_dict["use_double_quant"],
+                bnb_4bit_use_double_quant=ensure_type(quant_args_dict.get("use_double_quant", True), bool, "use_double_quant"),
                 bnb_4bit_quant_type="nf4",
             )
             
             # For Qwen, enable Flash Attention if available
-            attn_implementation = "flash_attention_2" if config["training"].get("use_flash_attention", True) else "eager"
+            use_flash_attention = ensure_type(config["training"].get("use_flash_attention", True), bool, "use_flash_attention") 
+            attn_implementation = "flash_attention_2" if use_flash_attention else "eager"
             
             try:
                 model = AutoModelForCausalLM.from_pretrained(
                     model_args_dict["name"],
-                    revision=model_args_dict["revision"],
-                    trust_remote_code=model_args_dict["trust_remote_code"],
+                    revision=model_args_dict.get("revision", "main"),
+                    trust_remote_code=ensure_type(model_args_dict.get("trust_remote_code", True), bool, "trust_remote_code"),
                     quantization_config=bnb_config,
                     device_map="auto",
                     attn_implementation=attn_implementation,
@@ -275,8 +304,8 @@ def train(config_path):
                 logger.info("Falling back to standard attention")
                 model = AutoModelForCausalLM.from_pretrained(
                     model_args_dict["name"],
-                    revision=model_args_dict["revision"],
-                    trust_remote_code=model_args_dict["trust_remote_code"],
+                    revision=model_args_dict.get("revision", "main"),
+                    trust_remote_code=ensure_type(model_args_dict.get("trust_remote_code", True), bool, "trust_remote_code"),
                     quantization_config=bnb_config,
                     device_map="auto",
                 )
@@ -286,12 +315,13 @@ def train(config_path):
             # For standard precision training
             try:
                 # For Qwen, enable Flash Attention if available
-                attn_implementation = "flash_attention_2" if config["training"].get("use_flash_attention", True) else "eager"
+                use_flash_attention = ensure_type(config["training"].get("use_flash_attention", True), bool, "use_flash_attention")
+                attn_implementation = "flash_attention_2" if use_flash_attention else "eager"
                 
                 model = AutoModelForCausalLM.from_pretrained(
                     model_args_dict["name"],
-                    revision=model_args_dict["revision"],
-                    trust_remote_code=model_args_dict["trust_remote_code"],
+                    revision=model_args_dict.get("revision", "main"),
+                    trust_remote_code=ensure_type(model_args_dict.get("trust_remote_code", True), bool, "trust_remote_code"),
                     device_map="auto",
                     attn_implementation=attn_implementation,
                 )
@@ -301,19 +331,21 @@ def train(config_path):
                 logger.info("Falling back to standard attention")
                 model = AutoModelForCausalLM.from_pretrained(
                     model_args_dict["name"],
-                    revision=model_args_dict["revision"],
-                    trust_remote_code=model_args_dict["trust_remote_code"],
+                    revision=model_args_dict.get("revision", "main"),
+                    trust_remote_code=ensure_type(model_args_dict.get("trust_remote_code", True), bool, "trust_remote_code"),
                     device_map="auto",
                 )
         
         # Configure LoRA
-        logger.info(f"Configuring LoRA with rank {lora_args_dict['r']}")
+        r = ensure_type(lora_args_dict.get("r", 16), int, "r")
+        logger.info(f"Configuring LoRA with rank {r}")
+        
         lora_config = LoraConfig(
-            r=lora_args_dict["r"],
-            lora_alpha=lora_args_dict["alpha"],
-            target_modules=lora_args_dict["target_modules"],
-            lora_dropout=lora_args_dict["dropout"],
-            bias=lora_args_dict["bias"],
+            r=r,
+            lora_alpha=ensure_type(lora_args_dict.get("alpha", 32), int, "alpha"),
+            target_modules=lora_args_dict.get("target_modules", ["q_proj", "v_proj"]),
+            lora_dropout=ensure_type(lora_args_dict.get("dropout", 0.05), float, "dropout"),
+            bias=lora_args_dict.get("bias", "none"),
             task_type="CAUSAL_LM",
         )
         
@@ -323,32 +355,47 @@ def train(config_path):
         # Print number of trainable parameters
         model.print_trainable_parameters()
         
-        # Configure training arguments
+        # Configure training arguments with proper type conversion
+        training_config = config["training"]
+        
+        # Convert all numeric parameters to the right types
+        batch_size = ensure_type(training_config.get("batch_size", 4), int, "batch_size")
+        gradient_accumulation_steps = ensure_type(training_config.get("gradient_accumulation_steps", 8), int, "gradient_accumulation_steps")
+        num_epochs = ensure_type(training_config.get("num_epochs", 3), float, "num_epochs")
+        learning_rate = ensure_type(training_config.get("learning_rate", 2e-4), float, "learning_rate")
+        weight_decay = ensure_type(training_config.get("weight_decay", 0.01), float, "weight_decay")
+        warmup_ratio = ensure_type(training_config.get("warmup_ratio", 0.03), float, "warmup_ratio")
+        save_steps = ensure_type(training_config.get("save_steps", 100), int, "save_steps")
+        eval_steps = ensure_type(training_config.get("eval_steps", 100), int, "eval_steps")
+        logging_steps = ensure_type(training_config.get("logging_steps", 10), int, "logging_steps")
+        fp16 = ensure_type(training_config.get("fp16", True), bool, "fp16")
+        gradient_checkpointing = ensure_type(training_config.get("gradient_checkpointing", True), bool, "gradient_checkpointing")
+        
+        logger.info(f"Training parameters: learning_rate={learning_rate}, batch_size={batch_size}, num_epochs={num_epochs}")
+                
         training_args = TrainingArguments(
             output_dir=config["output"]["output_dir"],
-            num_train_epochs=config["training"]["num_epochs"],
-            per_device_train_batch_size=config["training"]["batch_size"],
-            gradient_accumulation_steps=config["training"]["gradient_accumulation_steps"],
-            learning_rate=config["training"]["learning_rate"],
-            weight_decay=config["training"]["weight_decay"],
-            warmup_ratio=config["training"]["warmup_ratio"],
-            lr_scheduler_type=config["training"]["lr_scheduler"],
+            num_train_epochs=num_epochs,
+            per_device_train_batch_size=batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            learning_rate=learning_rate,
+            weight_decay=weight_decay,
+            warmup_ratio=warmup_ratio,
+            lr_scheduler_type=training_config.get("lr_scheduler", "cosine"),
             
-            # Fix the evaluation and save strategies to match
+            # Matching save and eval strategies
             save_strategy="steps",
-            save_steps=config["training"]["save_steps"],
-            
+            save_steps=save_steps,
             evaluation_strategy="steps",  # Must match save_strategy when load_best_model_at_end is True
-            eval_steps=config["training"]["eval_steps"],
+            eval_steps=eval_steps,
             
-            logging_steps=config["training"]["logging_steps"],
+            logging_steps=logging_steps,
             save_total_limit=2,
             load_best_model_at_end=True,
-            fp16=config["training"]["fp16"],
-            gradient_checkpointing=config["training"]["gradient_checkpointing"],
+            fp16=fp16,
+            gradient_checkpointing=gradient_checkpointing,
             report_to="mlflow",
         )
-
         
         # Initialize data collator
         data_collator = DataCollatorForLanguageModeling(
