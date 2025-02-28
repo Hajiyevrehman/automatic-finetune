@@ -21,7 +21,8 @@ from transformers import (
     Trainer, 
     HfArgumentParser,
     DataCollatorForLanguageModeling,
-    set_seed
+    set_seed,
+    BitsAndBytesConfig  # Correct import for BitsAndBytesConfig
 )
 from datasets import load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
@@ -245,7 +246,8 @@ def train(config_path):
         logger.info(f"Loading model {model_args_dict['name']}")
         if quant_args_dict["enabled"]:
             logger.info(f"Using {quant_args_dict['bits']}-bit quantization")
-            bnb_config = bnb.BitsAndBytesConfig(
+            # Correct usage of BitsAndBytesConfig from transformers
+            bnb_config = BitsAndBytesConfig(
                 load_in_4bit=quant_args_dict["bits"] == 4,
                 load_in_8bit=quant_args_dict["bits"] == 8,
                 llm_int8_threshold=6.0,
