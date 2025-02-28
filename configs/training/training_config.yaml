@@ -1,17 +1,14 @@
-# Qwen 2.5 0.5B Fine-tuning Configuration
-
-# Base model configuration
 model:
-  name: "Qwen/Qwen2.5-0.5B"  # Qwen 0.5B model
-  revision: "main"  # Use main branch/tag
-  trust_remote_code: true  # Required for some Qwen-specific code
+  name: "Qwen/Qwen2.5-0.5B-Instruct"
+  revision: "main"
+  chat_template: "qwen-2.5"
+  load_in_4bit: false
 
-# LoRA configuration
 lora:
-  r: 16  # Rank dimension
-  alpha: 32  # Alpha parameter for LoRA scaling
-  dropout: 0.05
-  target_modules:  # Target modules for LoRA adapters
+  r: 16
+  alpha: 16
+  dropout: 0
+  target_modules:
     - "q_proj"
     - "k_proj"
     - "v_proj"
@@ -19,53 +16,43 @@ lora:
     - "gate_proj"
     - "up_proj"
     - "down_proj"
-  bias: "none"  # Don't train bias terms
+  bias: "none"
+  use_rslora: false
 
-# Quantization configuration (for QLoRA)
-quantization:
-  enabled: true  # Enable quantization
-  bits: 4  # 4-bit quantization
-  group_size: 128  # Groupsize for quantization
-  use_double_quant: true  # Use double quantization for further memory savings
-
-# Training parameters
 training:
-  batch_size: 4
-  gradient_accumulation_steps: 8  # Effective batch size = batch_size * gradient_accumulation_steps
-  num_epochs: 3
-  learning_rate: 2e-4
-  lr_scheduler: "cosine"  # Cosine learning rate scheduler
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  num_epochs: 1
+  learning_rate: 2.0e-4
+  lr_scheduler: "cosine"
   weight_decay: 0.01
-  warmup_ratio: 0.03  # Warmup for first 3% of training steps
-  gradient_checkpointing: true  # Enable gradient checkpointing to save memory
-  fp16: true  # Use mixed precision training
-  seed: 42  # Random seed for reproducibility
-  max_steps: -1  # Train for specified number of epochs (-1 means use num_epochs)
-  save_steps: 100  # Save checkpoint every 100 steps
-  eval_steps: 100  # Evaluate every 100 steps
-  logging_steps: 10  # Log metrics every 10 steps
+  warmup_ratio: 0.03
+  use_gradient_checkpointing: "unsloth"
+  fp16: true
+  seed: 3407
+  max_steps: 100
+  save_steps: 50
+  eval_steps: 50
+  logging_steps: 10
+  max_seq_length: 2048
+  dataset_num_proc: 4
+  packing: false
+  train_on_responses_only: true
+  optim: "paged_adamw_8bit"
+  report_to: "none"
+  test_after_training: true
 
-# Dataset configuration
 dataset:
+  from_s3: true
   train_file: "s3://llm-finetuning-rahman-1234/data/processed/servicenow-qa_tokenized_train.pt"
   validation_file: "s3://llm-finetuning-rahman-1234/data/processed/servicenow-qa_tokenized_val.pt"
-  test_file: "data/processed/splits/test.json"
-  max_seq_length: 1024  # Max sequence length for inputs
-  text_column: "text"  # Column name for text in dataset
-  preprocessing_num_workers: 4
+  standardize_format: true
 
-# Output configuration
 output:
   output_dir: "models/qwen-0.5b-finetuned"
-  checkpoint_dir: "checkpoints"
   s3_output_path: "s3://llm-finetuning-rahman-1234/models/"
-  mlflow:
-    tracking_uri: "mlruns"
-    experiment_name: "qwen-0.5b-finetune"
 
-# Cloud provider configuration (for Lambda Labs)
-cloud:
-  provider: "lambdalabs"
-  instance_type: "gpu_a10"  # A10 GPU instance
-  region: "us-west-1"  # Region for Lambda Labs instance
-  ssh_key_name: "default"  # SSH key name registered with Lambda Labs
+aws:
+  access_key_id: ""
+  secret_access_key: ""
+  region: "us-east-1"
