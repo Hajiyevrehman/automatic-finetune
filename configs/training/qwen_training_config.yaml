@@ -44,6 +44,7 @@ training:
   save_steps: 100  # Save checkpoint every 100 steps
   eval_steps: 100  # Evaluate every 100 steps
   logging_steps: 10  # Log metrics every 10 steps
+  use_flash_attention: true  # Enable Flash Attention 2.0 for faster training
 
 # Dataset configuration
 dataset:
