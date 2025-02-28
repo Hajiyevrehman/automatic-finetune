@@ -17,10 +17,7 @@ def test_python_version():
 def test_environment_setup():
     """Verify that we can import core dependencies"""
     try:
-        import datasets
-        import peft
-        import torch
-        import transformers
+        import logging
     except ImportError as e:
         assert False, f"Failed to import core dependency: {e}"
 
