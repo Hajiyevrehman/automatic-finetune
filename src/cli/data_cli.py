@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-Command-line interface for the S3-integrated data pipeline.
+Command-line interface for the data pipeline.
 
 This module provides commands to run individual stages of the data pipeline
-or the entire pipeline end-to-end, with S3 integration.
+or the entire pipeline end-to-end.
 
 Usage:
     # Run the complete pipeline
-    python -m src.cli.data_cli run-pipeline --bucket my-llm-data-bucket --dataset servicenow-qa
+    python -m src.cli.data_cli run-pipeline --dataset servicenow-qa --config configs/data/data_processing.yaml
 
     # Run individual stages
-    python -m src.cli.data_cli download --bucket my-llm-data-bucket --dataset servicenow-qa
-    python -m src.cli.data_cli convert --bucket my-llm-data-bucket --dataset servicenow-qa --output servicenow-qa_converted
+    python -m src.cli.data_cli convert --dataset servicenow-qa --output servicenow-qa_converted --config configs/data/data_processing.yaml
     # ...and so on
 """
 
@@ -20,10 +19,7 @@ import logging
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
-
-from src.cloud.auth import create_bucket_if_not_exists, validate_s3_connection
-from src.data.s3_pipeline import S3DataPipeline
+from src.data.pipeline import DataPipeline
 
 # Configure logging
 logging.basicConfig(
@@ -31,44 +27,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
 
 def setup_pipeline(args):
     """
-    Set up the S3DataPipeline instance.
+    Set up the DataPipeline instance.
 
     Args:
         args (Namespace): Command line arguments
 
     Returns:
-        S3DataPipeline: Configured pipeline instance
+        DataPipeline: Configured pipeline instance
     """
-    # Ensure the S3 bucket exists
-    if not create_bucket_if_not_exists(args.bucket):
-        logger.error(f"Failed to create or access S3 bucket: {args.bucket}")
-        return None
-
-    # Validate the connection
-    if not validate_s3_connection(args.bucket):
-        logger.error(f"Cannot connect to S3 bucket: {args.bucket}")
-        return None
-
     # Create the pipeline
     try:
-        return S3DataPipeline(args.config, args.bucket)
+        return DataPipeline(args.config)
     except Exception as e:
         logger.error(f"Failed to create data pipeline: {str(e)}")
         return None
-
-
-def download_cmd(args):
-    """Execute the download stage of the pipeline."""
-    pipeline = setup_pipeline(args)
-    if pipeline:
-        return pipeline.download_from_source(args.dataset)
-    return False
 
 
 def convert_cmd(args):
@@ -121,30 +96,16 @@ def run_pipeline_cmd(args):
 
 def main():
     """Main function to parse arguments and execute commands."""
-    parser = argparse.ArgumentParser(
-        description="S3-integrated data pipeline for LLM fine-tuning"
-    )
+    parser = argparse.ArgumentParser(description="Data pipeline for LLM fine-tuning")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # Common arguments
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument(
-        "--bucket", required=True, help="S3 bucket name for data storage"
-    )
-    common_parser.add_argument(
         "--config",
-        default="configs/data/data_processing.json",
+        default="configs/data/data_processing.yaml",
         help="Path to data processing configuration file",
     )
-
-    # Download command
-    download_parser = subparsers.add_parser(
-        "download", parents=[common_parser], help="Download dataset from source"
-    )
-    download_parser.add_argument(
-        "--dataset", required=True, help="Name of the dataset to download"
-    )
-    download_parser.set_defaults(func=download_cmd)
 
     # Convert command
     convert_parser = subparsers.add_parser(
@@ -206,8 +167,7 @@ def main():
     split_parser.add_argument(
         "--train-ratio",
         type=float,
-        default=0.9,
-        help="Ratio of data to use for training (default: 0.9)",
+        help="Ratio of data to use for training (default from config)",
     )
     split_parser.set_defaults(func=split_cmd)
 

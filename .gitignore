@@ -46,3 +46,7 @@ ENV/
 # Logs and temporary files
 logs/
 *.log
+
+/.dvc/tmp
+/.dvc/plots
+/.dvc/cache

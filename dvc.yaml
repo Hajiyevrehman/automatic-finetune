@@ -1,65 +1,56 @@
 stages:
   download:
-    cmd: >
-      python scripts/dataset_converter.py
-      --subset_size 100
-      --version v1
-      --output_path data/raw/servicenow-qa.json
+    cmd: python scripts/dataset_converters/servicenow-qa_converter.py --output_path
+      data/raw/servicenow-qa.json
     deps:
-      - scripts/dataset_converter.py
+    - scripts/dataset_converters/servicenow-qa_converter.py
     outs:
-      - data/raw/servicenow-qa.json
-
-
+    - data/raw/servicenow-qa.json
   convert:
-    cmd: python -m src.cli.data_cli convert --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa --output servicenow-qa_converted --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli convert --dataset servicenow-qa --output servicenow-qa_converted
+      --config configs/data/data_processing.yaml
     deps:
-      - src/data/s3_pipeline.py
-      - src/cloud/storage.py
-      - data/raw/servicenow-qa.json
-      - configs/data/data_processing.json
+    - src/data/pipeline.py
+    - data/raw/servicenow-qa.json
+    - configs/data/data_processing.yaml
     outs:
-      - data/processed/servicenow-qa_converted.json
-
+    - data/processed/servicenow-qa_converted.json
   preprocess:
-    cmd: python -m src.cli.data_cli preprocess --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_converted --output servicenow-qa_preprocessed --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli preprocess --dataset servicenow-qa_converted --output
+      servicenow-qa_preprocessed --config configs/data/data_processing.yaml
     deps:
-      - src/data/s3_pipeline.py
-      - src/cloud/storage.py
-      - data/processed/servicenow-qa_converted.json
-      - configs/data/data_processing.json
+    - src/data/pipeline.py
+    - data/processed/servicenow-qa_converted.json
+    - configs/data/data_processing.yaml
     outs:
-      - data/processed/servicenow-qa_preprocessed.json
-
+    - data/processed/servicenow-qa_preprocessed.json
   validate:
-    cmd: python -m src.cli.data_cli validate --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_preprocessed --output servicenow-qa_validated --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli validate --dataset servicenow-qa_preprocessed
+      --output servicenow-qa_validated --config configs/data/data_processing.yaml
     deps:
-      - src/data/s3_pipeline.py
-      - src/cloud/storage.py
-      - data/processed/servicenow-qa_preprocessed.json
-      - configs/data/data_processing.json
+    - src/data/pipeline.py
+    - data/processed/servicenow-qa_preprocessed.json
+    - configs/data/data_processing.yaml
     outs:
-      - data/validation/servicenow-qa_validated.json
-      - data/validation/servicenow-qa_validated_stats.json
-
+    - data/validation/servicenow-qa_validated.json
+    - data/validation/servicenow-qa_validated_stats.json
   tokenize:
-    cmd: python -m src.cli.data_cli tokenize --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_validated --output servicenow-qa_tokenized --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli tokenize --dataset servicenow-qa_validated --output
+      servicenow-qa_tokenized --config configs/data/data_processing.yaml
     deps:
-      - src/data/s3_pipeline.py
-      - src/cloud/storage.py
-      - data/validation/servicenow-qa_validated.json
-      - configs/data/data_processing.json
+    - src/data/pipeline.py
+    - data/validation/servicenow-qa_validated.json
+    - configs/data/data_processing.yaml
     outs:
-      - data/processed/servicenow-qa_tokenized.pt
-
+    - data/processed/servicenow-qa_tokenized.pt
   split:
-    cmd: python -m src.cli.data_cli split --bucket llm-finetuning-rahman-1234 --dataset servicenow-qa_tokenized --config configs/data/data_processing.json
+    cmd: python -m src.cli.data_cli split --dataset servicenow-qa_tokenized --config
+      configs/data/data_processing.yaml
     deps:
-      - src/data/s3_pipeline.py
-      - src/cloud/storage.py
-      - data/processed/servicenow-qa_tokenized.pt
-      - configs/data/data_processing.json
+    - src/data/pipeline.py
+    - data/processed/servicenow-qa_tokenized.pt
+    - configs/data/data_processing.yaml
     outs:
-      - data/processed/servicenow-qa_tokenized_train.pt
-      - data/processed/servicenow-qa_tokenized_val.pt
-      - data/processed/servicenow-qa_tokenized_test.pt
+    - data/processed/servicenow-qa_tokenized_train.pt
+    - data/processed/servicenow-qa_tokenized_val.pt
+    - data/processed/servicenow-qa_tokenized_test.pt

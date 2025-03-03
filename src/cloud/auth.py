@@ -5,7 +5,7 @@ Handles credential loading and session creation for S3 and other AWS services.
 
 import logging
 import os
-from typing import Optional
+from typing import Optional, Tuple
 
 import boto3
 from botocore.exceptions import ClientError
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 
-def get_aws_credentials() -> tuple:
+def get_aws_credentials() -> Tuple[str, str, str]:
     """
     Get AWS credentials from environment variables.
 
@@ -61,7 +61,7 @@ def create_aws_session() -> boto3.Session:
             region_name=aws_region,
         )
 
-        logger.info(f"AWS session created successfully in region {aws_region}")
+        logger.debug(f"AWS session created successfully in region {aws_region}")
         return session
 
     except Exception as e:
@@ -89,37 +89,6 @@ def get_s3_resource() -> boto3.resource:
     """
     session = create_aws_session()
     return session.resource("s3")
-
-
-def validate_s3_connection(bucket_name: str) -> bool:
-    """
-    Validate S3 connection by checking if a bucket exists and is accessible.
-
-    Args:
-        bucket_name (str): Name of the S3 bucket to check
-
-    Returns:
-        bool: True if connection is valid and bucket is accessible, False otherwise
-    """
-    try:
-        s3_client = get_s3_client()
-        s3_client.head_bucket(Bucket=bucket_name)
-        logger.info(f"Successfully connected to S3 bucket: {bucket_name}")
-        return True
-
-    except ClientError as e:
-        error_code = e.response.get("Error", {}).get("Code")
-        if error_code == "404":
-            logger.error(f"Bucket {bucket_name} does not exist")
-        elif error_code == "403":
-            logger.error(f"Access denied to bucket {bucket_name}. Check permissions")
-        else:
-            logger.error(f"Error accessing bucket {bucket_name}: {str(e)}")
-        return False
-
-    except Exception as e:
-        logger.error(f"Error validating S3 connection: {str(e)}")
-        return False
 
 
 def create_bucket_if_not_exists(bucket_name: str, region: Optional[str] = None) -> bool:
@@ -165,4 +134,35 @@ def create_bucket_if_not_exists(bucket_name: str, region: Optional[str] = None) 
 
     except Exception as e:
         logger.error(f"Failed to create bucket {bucket_name}: {str(e)}")
+        return False
+
+
+def validate_s3_connection(bucket_name: str) -> bool:
+    """
+    Validate S3 connection by checking if a bucket exists and is accessible.
+
+    Args:
+        bucket_name (str): Name of the S3 bucket to check
+
+    Returns:
+        bool: True if connection is valid and bucket is accessible, False otherwise
+    """
+    try:
+        s3_client = get_s3_client()
+        s3_client.head_bucket(Bucket=bucket_name)
+        logger.info(f"Successfully connected to S3 bucket: {bucket_name}")
+        return True
+
+    except ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code == "404":
+            logger.error(f"Bucket {bucket_name} does not exist")
+        elif error_code == "403":
+            logger.error(f"Access denied to bucket {bucket_name}. Check permissions")
+        else:
+            logger.error(f"Error accessing bucket {bucket_name}: {str(e)}")
+        return False
+
+    except Exception as e:
+        logger.error(f"Error validating S3 connection: {str(e)}")
         return False

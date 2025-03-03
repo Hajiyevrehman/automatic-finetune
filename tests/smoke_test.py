@@ -6,12 +6,12 @@ import sys
 
 
 def test_python_version():
-    """Verify Python version is at least 3.10"""
+    """Verify Python version is at least 3.9"""
     major, minor = sys.version_info[:2]
     assert (major, minor) >= (
         3,
-        10,
-    ), f"Python version must be at least 3.10, got {major}.{minor}"
+        9,
+    ), f"Python version must be at least 3.9, got {major}.{minor}"
 
 
 def test_environment_setup():

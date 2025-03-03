@@ -1,10 +1,17 @@
-data:
-  raw_dir: "data/raw"
-  processed_dir: "data/processed"
-  validation_dir: "data/validation"
-
-processing:
-  max_length: 512
-  tokenizer: "gpt2"
-  validation_split: 0.1
+directories:
+  processed: data/processed
+  raw: data/raw
+  validation: data/validation
+model:
+  max_length: 2048
+  name: Qwen/Qwen2.5-7B-Instruct
+s3:
+  default_bucket: llm-finetuning-rahman-1234
+  region: us-east-1
+splitting:
   seed: 42
+  train_ratio: 0.9
+  val_test_ratio: 0.5
+tokenizer:
+  padding: max_length
+  truncation: true

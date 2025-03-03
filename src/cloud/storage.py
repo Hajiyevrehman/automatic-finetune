@@ -82,93 +82,6 @@ class S3Storage:
             logger.error(f"Failed to download {s3_key} from S3: {str(e)}")
             return False
 
-    def upload_directory(
-        self, local_dir: Union[str, Path], s3_prefix: str = ""
-    ) -> bool:
-        """
-        Upload an entire local directory to S3.
-
-        Args:
-            local_dir (str or Path): Local directory path
-            s3_prefix (str): S3 prefix to prepend to all uploaded files
-
-        Returns:
-            bool: True if all uploads successful, False if any failed
-        """
-        local_dir = Path(local_dir)
-        if not local_dir.is_dir():
-            logger.error(f"{local_dir} is not a directory")
-            return False
-
-        all_successful = True
-        for path in local_dir.rglob("*"):
-            if path.is_file():
-                relative_path = path.relative_to(local_dir)
-                s3_key = (
-                    f"{s3_prefix}/{relative_path}" if s3_prefix else str(relative_path)
-                )
-
-                # Normalize Windows paths if needed
-                s3_key = s3_key.replace("\\", "/")
-
-                if not self.upload_file(path, s3_key):
-                    all_successful = False
-
-        return all_successful
-
-    def download_directory(self, s3_prefix: str, local_dir: Union[str, Path]) -> bool:
-        """
-        Download all files with a given prefix from S3 to a local directory.
-
-        Args:
-            s3_prefix (str): S3 prefix to filter objects by
-            local_dir (str or Path): Local directory to download files to
-
-        Returns:
-            bool: True if all downloads successful, False if any failed
-        """
-        local_dir = Path(local_dir)
-        local_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            # Normalize prefix to not start with / but end with / if not empty
-            if s3_prefix and not s3_prefix.endswith("/"):
-                s3_prefix = f"{s3_prefix}/"
-
-            all_successful = True
-            for obj in self.bucket.objects.filter(Prefix=s3_prefix):
-                # Skip "directory" objects (objects ending with /)
-                if obj.key.endswith("/"):
-                    continue
-
-                # Determine the relative path from the prefix
-                if s3_prefix:
-                    relative_path = obj.key[len(s3_prefix) :]
-                else:
-                    relative_path = obj.key
-
-                local_path = local_dir / relative_path
-
-                # Create subdirectories if needed
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-
-                try:
-                    self.s3_client.download_file(
-                        self.bucket_name, obj.key, str(local_path)
-                    )
-                    logger.info(
-                        f"Downloaded s3://{self.bucket_name}/{obj.key} to {local_path}"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to download {obj.key}: {str(e)}")
-                    all_successful = False
-
-            return all_successful
-
-        except Exception as e:
-            logger.error(f"Error downloading directory from S3: {str(e)}")
-            return False
-
     def list_objects(self, prefix: str = "", suffix: str = "") -> List[str]:
         """
         List objects in the S3 bucket, optionally filtering by prefix and suffix.
@@ -197,54 +110,6 @@ class S3Storage:
         except Exception as e:
             logger.error(f"Error listing objects in S3: {str(e)}")
             return []
-
-    def delete_object(self, s3_key: str) -> bool:
-        """
-        Delete an object from the S3 bucket.
-
-        Args:
-            s3_key (str): S3 key of the object to delete
-
-        Returns:
-            bool: True if deletion successful, False otherwise
-        """
-        try:
-            self.s3_client.delete_object(Bucket=self.bucket_name, Key=s3_key)
-            logger.info(f"Deleted s3://{self.bucket_name}/{s3_key}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to delete {s3_key} from S3: {str(e)}")
-            return False
-
-    def delete_objects(self, s3_keys: List[str]) -> bool:
-        """
-        Delete multiple objects from the S3 bucket.
-
-        Args:
-            s3_keys (List[str]): List of S3 keys to delete
-
-        Returns:
-            bool: True if all deletions successful, False otherwise
-        """
-        if not s3_keys:
-            return True
-
-        try:
-            # S3 delete_objects API requires a specific format
-            objects = [{"Key": key} for key in s3_keys]
-
-            self.s3_client.delete_objects(
-                Bucket=self.bucket_name, Delete={"Objects": objects}
-            )
-
-            logger.info(
-                f"Deleted {len(s3_keys)} objects from S3 bucket {self.bucket_name}"
-            )
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to delete objects from S3: {str(e)}")
-            return False
 
     def object_exists(self, s3_key: str) -> bool:
         """
@@ -303,27 +168,4 @@ class S3Storage:
             return json.loads(json_str)
         except Exception as e:
             logger.error(f"Failed to download or parse JSON from S3: {str(e)}")
-            return None
-
-    def get_object_metadata(self, s3_key: str) -> Optional[Dict[str, Any]]:
-        """
-        Get metadata for an S3 object.
-
-        Args:
-            s3_key (str): S3 key of the object
-
-        Returns:
-            Dict[str, Any]: Object metadata, or None if retrieval failed
-        """
-        try:
-            response = self.s3_client.head_object(Bucket=self.bucket_name, Key=s3_key)
-            return {
-                "size": response.get("ContentLength", 0),
-                "last_modified": response.get("LastModified"),
-                "content_type": response.get("ContentType"),
-                "metadata": response.get("Metadata", {}),
-                "etag": response.get("ETag", "").strip('"'),
-            }
-        except Exception as e:
-            logger.error(f"Failed to get metadata for {s3_key}: {str(e)}")
             return None

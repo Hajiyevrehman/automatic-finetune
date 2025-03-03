@@ -1,9 +1,28 @@
+#!/usr/bin/env python3
+"""
+ServiceNow dataset converter.
+
+This script downloads and converts the ServiceNow-AI/R1-Distill-SFT dataset
+from Hugging Face to a clean Q&A format JSON.
+
+Usage:
+    python servicenow_converter.py --subset_size 1000 --version v1 --output_path data/raw/servicenow-qa.json
+"""
+
 import argparse
 import json
+import logging
 import os
+from pathlib import Path
 
 from datasets import load_dataset
 from tqdm import tqdm
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 
 def load_servicenow_dataset(subset_size=100, version="v1"):
@@ -18,12 +37,12 @@ def load_servicenow_dataset(subset_size=100, version="v1"):
     Returns:
         list: List of dataset samples
     """
-    print(f"Loading ServiceNow-AI/R1-Distill-SFT dataset (version {version})...")
+    logger.info(f"Loading ServiceNow-AI/R1-Distill-SFT dataset (version {version})...")
     dataset = load_dataset("ServiceNow-AI/R1-Distill-SFT", version, split="train")
 
     # Take a subset
     subset = dataset.select(range(min(subset_size, len(dataset))))
-    print(f"Loaded {len(subset)} samples from the dataset")
+    logger.info(f"Loaded {len(subset)} samples from the dataset")
 
     return subset
 
@@ -77,10 +96,10 @@ def convert_to_qa_format(dataset_samples):
 
                     qa_pairs.append(qa_pair)
         except Exception as e:
-            print(f"Error processing sample: {e}")
+            logger.error(f"Error processing sample: {e}")
             continue
 
-    print(f"Successfully converted {len(qa_pairs)} samples to Q&A format")
+    logger.info(f"Successfully converted {len(qa_pairs)} samples to Q&A format")
     return qa_pairs
 
 
@@ -98,7 +117,7 @@ def save_qa_pairs(qa_pairs, output_path):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(qa_pairs, f, ensure_ascii=False, indent=2)
 
-    print(f"Saved {len(qa_pairs)} Q&A pairs to {output_path}")
+    logger.info(f"Saved {len(qa_pairs)} Q&A pairs to {output_path}")
 
 
 def main():
@@ -118,7 +137,7 @@ def main():
     parser.add_argument(
         "--output_path",
         type=str,
-        default="data/raw/servicenow_qa.json",
+        default="data/raw/servicenow-qa.json",
         help="Path to save the output JSON file",
     )
 
@@ -133,7 +152,7 @@ def main():
     # Save the Q&A pairs
     save_qa_pairs(qa_pairs, args.output_path)
 
-    print("Conversion completed successfully!")
+    logger.info("Conversion completed successfully!")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ trl>=0.7.1
 einops>=0.6.0
 sentencepiece>=0.1.99
 protobuf>=3.20.0
-flash-attn>=2.3.0  # Flash Attention for faster training
-triton>=2.0.0      # Required for Flash Attention
+#flash-attn>=2.3.0  # Flash Attention for faster training
+#triton>=2.0.0      # Required for Flash Attention
 
 # Quantization libraries
 bitsandbytes>=0.41.0

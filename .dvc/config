@@ -1,0 +1,5 @@
+[core]
+    remote = storage
+['remote "storage"']
+    url = s3://llm-finetuning-rahman-1234
+    endpointurl = https://s3.amazonaws.com
