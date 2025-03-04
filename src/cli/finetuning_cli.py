@@ -133,16 +133,31 @@ def finetune_model(config, data_config):
 
     # Connect to S3
     logger.info(f"Connecting to S3 bucket {s3_bucket} in region {s3_region}")
-    s3_client = get_s3_client()
+    s3_client = get_s3_client()  # The function doesn't accept region parameter
     s3_storage = S3Storage(s3_bucket)
 
     # Download data from S3
     train_file = config["data"]["train_file"]
-    local_data_path = os.path.basename(train_file)
     s3_data_path = train_file
+    
+    # Extract filename from S3 path
+    filename = s3_data_path.split('/')[-1]
+    if not filename:
+        filename = "dataset.json"
+    
+    # Create a temp directory for downloaded files if it doesn't exist
+    temp_dir = "temp_data"
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Set the local path to the temp directory with filename
+    local_data_path = os.path.join(temp_dir, filename)
 
     logger.info(f"Downloading dataset from s3://{s3_bucket}/{s3_data_path}")
-    s3_storage.download_file(s3_data_path, local_data_path)
+    logger.info(f"Saving to local path: {local_data_path}")
+    success = s3_storage.download_file(s3_data_path, local_data_path)
+    
+    if not success or not os.path.exists(local_data_path):
+        raise FileNotFoundError(f"Failed to download file from S3: {s3_data_path} to {local_data_path}")
 
     # Load dataset
     import json
@@ -313,7 +328,7 @@ def finetune_model(config, data_config):
         if "lora" in output_formats:
             logger.info("Saving LoRA adapters")
             model.save_pretrained_merged(output_dir, tokenizer, save_method="lora")
-
+            
             # Upload directory contents to S3
             for root, _, files in os.walk(output_dir):
                 for file in files:
