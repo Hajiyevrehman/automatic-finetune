@@ -110,7 +110,7 @@ def finetune_model(config, data_config):
 
         # Import S3 modules
         from src.cloud.auth import get_s3_client
-        from src.cloud.storage import download_from_s3, upload_to_s3
+        from src.cloud.storage import S3Storage
     except ImportError as e:
         logger.error(f"Error importing required packages: {e}")
         logger.error(
@@ -134,6 +134,7 @@ def finetune_model(config, data_config):
     # Connect to S3
     logger.info(f"Connecting to S3 bucket {s3_bucket} in region {s3_region}")
     s3_client = get_s3_client(region=s3_region)
+    s3_storage = S3Storage(s3_bucket)
 
     # Download data from S3
     train_file = config["data"]["train_file"]
@@ -141,7 +142,7 @@ def finetune_model(config, data_config):
     s3_data_path = train_file
 
     logger.info(f"Downloading dataset from s3://{s3_bucket}/{s3_data_path}")
-    download_from_s3(s3_client, s3_bucket, s3_data_path, local_data_path)
+    s3_storage.download_file(s3_data_path, local_data_path)
 
     # Load dataset
     import json
@@ -312,7 +313,15 @@ def finetune_model(config, data_config):
         if "lora" in output_formats:
             logger.info("Saving LoRA adapters")
             model.save_pretrained_merged(output_dir, tokenizer, save_method="lora")
-            upload_to_s3(s3_client, s3_bucket, output_dir, f"{model_s3_path}/lora")
+
+            # Upload directory contents to S3
+            for root, _, files in os.walk(output_dir):
+                for file in files:
+                    local_file_path = os.path.join(root, file)
+                    # Make the S3 key relative to the output directory
+                    relative_path = os.path.relpath(local_file_path, output_dir)
+                    s3_key = f"{model_s3_path}/lora/{relative_path}"
+                    s3_storage.upload_file(local_file_path, s3_key)
 
         # Save in GGUF format if specified
         gguf_formats = [fmt for fmt in output_formats if fmt.startswith("gguf_")]
@@ -325,12 +334,9 @@ def finetune_model(config, data_config):
                 model.save_pretrained_gguf(
                     output_dir, tokenizer, quantization_method=quant_method
                 )
-                upload_to_s3(
-                    s3_client,
-                    s3_bucket,
-                    f"{output_dir}-unsloth-{quant_method.upper()}.gguf",
-                    f"{model_s3_path}/gguf/model-{quant_method}.gguf",
-                )
+                gguf_file = f"{output_dir}-unsloth-{quant_method.upper()}.gguf"
+                s3_key = f"{model_s3_path}/gguf/model-{quant_method}.gguf"
+                s3_storage.upload_file(gguf_file, s3_key)
 
     # Test inference
     logger.info("Testing inference with finetuned model")
