@@ -1,0 +1,59 @@
+# LLM Finetuning Configuration
+# configs/training/llm_finetuning.yaml
+
+# Model configuration
+model:
+  name: "unsloth/Qwen2.5-7B"  # Model to finetune
+  max_seq_length: 2048        # Maximum sequence length
+  load_in_4bit: true          # Whether to use 4-bit quantization
+
+# LoRA configuration
+lora:
+  r: 16                       # LoRA rank
+  alpha: 16                   # LoRA alpha
+  dropout: 0                  # LoRA dropout
+  target_modules:             # Modules to apply LoRA to
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+    - "gate_proj"
+    - "up_proj"
+    - "down_proj"
+  use_rslora: false           # Whether to use rank-stabilized LoRA
+
+# Training configuration
+training:
+  batch_size: 2               # Batch size per device
+  gradient_accumulation_steps: 4  # Gradient accumulation steps
+  num_train_epochs: 3         # Number of training epochs
+  learning_rate: 0.0002       # Learning rate
+  warmup_steps: 5             # Warmup steps
+  weight_decay: 0.01          # Weight decay
+  lr_scheduler_type: "linear" # Learning rate scheduler
+  seed: 3407                  # Random seed
+  logging_steps: 10           # Logging frequency
+  evaluation_strategy: "no"   # Evaluation strategy
+  save_strategy: "epoch"      # Save strategy
+  save_total_limit: 3         # Maximum number of saved checkpoints
+  optim: "adamw_8bit"         # Optimizer
+
+# Data configuration
+data:
+  train_file: "data/processed/servicenow-qa_converted.json"  # Training data file
+  format_type: "chatml"       # Data format type (chatml, alpaca, etc.)
+
+# Output configuration
+output:
+  dir: "models/finetuned"     # Output directory
+  save_formats:               # Formats to save the model in
+    - "lora"                  # LoRA adapters only
+    - "gguf_q4_k_m"           # GGUF 4-bit quantized
+  push_to_hub: false          # Whether to push to Hugging Face Hub
+  hub_model_id: ""            # Hugging Face Hub model ID
+  hub_token: ""               # Hugging Face Hub token
+
+# S3 configuration
+s3:
+  bucket: "llm-finetuning-rahman-1234"  # S3 bucket name
+  model_prefix: "models/qwen2.5-7b-servicenow-qa"  # S3 model prefix
