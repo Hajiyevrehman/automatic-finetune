@@ -133,7 +133,7 @@ def finetune_model(config, data_config):
 
     # Connect to S3
     logger.info(f"Connecting to S3 bucket {s3_bucket} in region {s3_region}")
-    s3_client = get_s3_client(region=s3_region)
+    s3_client = get_s3_client()
     s3_storage = S3Storage(s3_bucket)
 
     # Download data from S3
