@@ -22,11 +22,10 @@ def train_model_with_unsloth(config=None):
     Args:
         config (dict): Configuration dictionary for training
     """
-    if config is None:
         # Load config from default location if not provided
-        config_path = "configs/training/llm_finetuning.yaml"
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
+    config_path = "configs/training/llm_finetuning.yaml"
+    with open(config_path, 'r') as f:
+        config = yaml.safe_load(f)
     
     # Initialize MLflow
     mlflow.set_experiment("llm_finetuning")
