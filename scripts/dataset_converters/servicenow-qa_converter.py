@@ -25,7 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_servicenow_dataset(subset_size=100, version="v1"):
+def load_servicenow_dataset(subset_size=2000, version="v1"):
     """
     Load the ServiceNow-AI/R1-Distill-SFT dataset from Hugging Face
     and extract a subset of the data.
@@ -125,7 +125,7 @@ def main():
         description="Convert ServiceNow dataset to Q&A format"
     )
     parser.add_argument(
-        "--subset_size", type=int, default=100, help="Number of samples to extract"
+        "--subset_size", type=int, default=10000, help="Number of samples to extract"
     )
     parser.add_argument(
         "--version",

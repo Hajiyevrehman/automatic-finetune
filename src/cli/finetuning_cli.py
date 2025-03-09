@@ -1,404 +1,616 @@
-#!/usr/bin/env python
-# src/cli/finetune_cli.py
+#!/usr/bin/env python3
 """
-Command-line interface for LLM finetuning process.
-This script allows running the LLM finetuning process from the command line.
+CLI for LLM fine-tuning on Lambda Labs cloud instances.
+This enhances the existing fine-tuning CLI with cloud management features.
 """
 
-import argparse
-import logging
 import os
 import sys
-from pathlib import Path
-
+import argparse
 import yaml
-
-# Add project root to path
-project_root = Path(__file__).resolve().parents[2]
-sys.path.append(str(project_root))
+import json
+import time
+from pathlib import Path
+import logging
 
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
 )
-logger = logging.getLogger("finetune_cli")
+logger = logging.getLogger(__name__)
+
+# Import local modules
+try:
+    from src.cloud.auth import get_cloud_credentials
+    from scripts.setup_cloud_finetuning import LambdaCloudManager
+except ImportError:
+    # Handle relative imports when run as script
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from src.cloud.auth import get_cloud_credentials
+    from scripts.setup_cloud_finetuning import LambdaCloudManager
 
 
-def parse_args():
-    """Parse command-line arguments"""
-    parser = argparse.ArgumentParser(description="Finetune LLM on custom dataset")
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/training/llm_finetuning.yaml",
-        help="Path to training configuration file",
-    )
-    parser.add_argument(
-        "--data-config",
-        type=str,
-        default="configs/data/data_processing.yaml",
-        help="Path to data configuration file",
-    )
-    parser.add_argument(
-        "--data-path", type=str, help="Path to training data (overrides config)"
-    )
-    parser.add_argument(
-        "--model", type=str, help="Model name to finetune (overrides config)"
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=str,
-        help="Output directory for finetuned model (overrides config)",
-    )
-    parser.add_argument(
-        "--epochs", type=int, help="Number of training epochs (overrides config)"
-    )
-    parser.add_argument(
-        "--batch-size", type=int, help="Batch size for training (overrides config)"
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        help="Learning rate for training (overrides config)",
-    )
-    parser.add_argument(
-        "--s3-upload", action="store_true", help="Upload finetuned model to S3"
-    )
-    return parser.parse_args()
-
-
-def load_config(config_path):
-    """Load configuration from YAML file"""
-    with open(config_path, "r") as f:
-        return yaml.safe_load(f)
-
-
-def override_config_with_args(config, args):
-    """Override configuration with command-line arguments"""
-    if args.model:
-        config["model"]["name"] = args.model
-
-    if args.epochs:
-        config["training"]["num_train_epochs"] = args.epochs
-
-    if args.batch_size:
-        config["training"]["batch_size"] = args.batch_size
-
-    if args.learning_rate:
-        config["training"]["learning_rate"] = args.learning_rate
-
-    if args.output_dir:
-        config["output"]["dir"] = args.output_dir
-
-    if args.data_path:
-        config["data"]["train_file"] = args.data_path
-
-    return config
-
-
-def finetune_model(config, data_config):
-    """Finetune LLM with the specified configuration"""
-    # We'll import all heavy dependencies here to ensure fast CLI startup
-    try:
-        import torch
-        from datasets import Dataset
-        from transformers import TextStreamer, TrainingArguments
-        from trl import SFTTrainer
-        from unsloth import FastLanguageModel, is_bfloat16_supported
-
-        # Import S3 modules
-        from src.cloud.auth import get_s3_client
-        from src.cloud.storage import S3Storage
-    except ImportError as e:
-        logger.error(f"Error importing required packages: {e}")
-        logger.error(
-            "Please install the required packages: pip install unsloth trl datasets boto3"
-        )
-        sys.exit(1)
-
-    # Get model params from config
-    model_name = config["model"]["name"]
-    max_seq_length = config["model"]["max_seq_length"]
-    load_in_4bit = config["model"]["load_in_4bit"]
-    dtype = None  # Auto detection
-
-    # Get S3 info from config
-    s3_bucket = data_config["s3"]["default_bucket"]
-    s3_region = data_config["s3"]["region"]
-
-    # Get output directory
-    output_dir = config["output"].get("dir", "models/finetuned")
-
-    # Connect to S3
-    logger.info(f"Connecting to S3 bucket {s3_bucket} in region {s3_region}")
-    s3_client = get_s3_client()  # The function doesn't accept region parameter
-    s3_storage = S3Storage(s3_bucket)
-
-    # Download data from S3
-    train_file = config["data"]["train_file"]
-    s3_data_path = train_file
+class FineTuningWorkflow:
+    """
+    Manages the end-to-end workflow for fine-tuning LLMs on Lambda Cloud
+    """
     
-    # Extract filename from S3 path
-    filename = s3_data_path.split('/')[-1]
-    if not filename:
-        filename = "dataset.json"
+    def __init__(self, config_path=None):
+        """Initialize with optional configuration path"""
+        self.config_path = config_path
+        self.config = self._load_config()
+        
+        # Set up cloud credentials
+        self._setup_cloud_credentials()
+        
+        # Initialize Lambda Cloud Manager if credentials available
+        self.lambda_manager = None
+        if os.environ.get('LAMBDA_API_KEY'):
+            try:
+                self.lambda_manager = LambdaCloudManager(config_path=config_path)
+            except Exception as e:
+                logger.warning(f"Failed to initialize Lambda Cloud Manager: {e}")
     
-    # Create a temp directory for downloaded files if it doesn't exist
-    temp_dir = "temp_data"
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    # Set the local path to the temp directory with filename
-    local_data_path = os.path.join(temp_dir, filename)
-
-    logger.info(f"Downloading dataset from s3://{s3_bucket}/{s3_data_path}")
-    logger.info(f"Saving to local path: {local_data_path}")
-    success = s3_storage.download_file(s3_data_path, local_data_path)
-    
-    if not success or not os.path.exists(local_data_path):
-        raise FileNotFoundError(f"Failed to download file from S3: {s3_data_path} to {local_data_path}")
-
-    # Load dataset
-    import json
-
-    with open(local_data_path, "r") as f:
-        dataset_raw = json.load(f)
-
-    logger.info(f"Loaded dataset with {len(dataset_raw)} examples")
-
-    # Load model
-    logger.info(f"Loading {model_name} with Unsloth optimization")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=model_name,
-        max_seq_length=max_seq_length,
-        dtype=dtype,
-        load_in_4bit=load_in_4bit,
-    )
-
-    # Add LoRA adapters
-    lora_config = config.get("lora", {})
-    logger.info("Adding LoRA adapters")
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=lora_config.get("r", 16),
-        target_modules=lora_config.get(
-            "target_modules",
-            [
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-        ),
-        lora_alpha=lora_config.get("alpha", 16),
-        lora_dropout=lora_config.get("dropout", 0),
-        bias="none",
-        use_gradient_checkpointing="unsloth",
-        random_state=3407,
-        use_rslora=lora_config.get("use_rslora", False),
-        loftq_config=None,
-    )
-
-    # Format dataset based on format_type
-    format_type = config["data"].get("format_type", "chatml")
-
-    def format_servicenow_qa(examples):
-        formatted_examples = []
-
-        if format_type == "chatml":
-            for example in examples:
-                messages = example.get("messages", [])
-
-                # Extract messages by role
-                system_content = ""
-                user_content = ""
-                assistant_content = ""
-
-                for message in messages:
-                    if message["role"] == "system":
-                        system_content = message["content"]
-                    elif message["role"] == "user":
-                        user_content = message["content"]
-                    elif message["role"] == "assistant":
-                        assistant_content = message["content"]
-
-                # Create formatted text with ChatML format
-                formatted_text = f"""<|im_start|>system
-{system_content}<|im_end|>
-<|im_start|>user
-{user_content}<|im_end|>
-<|im_start|>assistant
-{assistant_content}{tokenizer.eos_token}<|im_end|>"""
-
-                formatted_examples.append({"text": formatted_text})
-        else:
-            logger.warning(
-                f"Unknown format type: {format_type}, defaulting to raw text"
-            )
-            # Default to raw text
-            for example in examples:
-                formatted_examples.append({"text": str(example)})
-
-        return formatted_examples
-
-    # Format dataset and create HF dataset
-    formatted_data = format_servicenow_qa(dataset_raw)
-    train_dataset = Dataset.from_list(formatted_data)
-
-    logger.info(f"Formatted dataset with {len(train_dataset)} examples")
-
-    # Get training parameters
-    train_config = config.get("training", {})
-
-    # Create training arguments
-    training_args = TrainingArguments(
-        per_device_train_batch_size=train_config.get("batch_size", 2),
-        gradient_accumulation_steps=train_config.get("gradient_accumulation_steps", 4),
-        warmup_steps=train_config.get("warmup_steps", 5),
-        num_train_epochs=train_config.get("num_train_epochs", 3),
-        learning_rate=train_config.get("learning_rate", 2e-4),
-        fp16=not is_bfloat16_supported(),
-        bf16=is_bfloat16_supported(),
-        logging_steps=train_config.get("logging_steps", 10),
-        optim=train_config.get("optim", "adamw_8bit"),
-        weight_decay=train_config.get("weight_decay", 0.01),
-        lr_scheduler_type=train_config.get("lr_scheduler_type", "linear"),
-        seed=train_config.get("seed", 3407),
-        output_dir=output_dir,
-        evaluation_strategy=train_config.get("evaluation_strategy", "no"),
-        save_strategy=train_config.get("save_strategy", "epoch"),
-        save_total_limit=train_config.get("save_total_limit", 3),
-        report_to="none",
-    )
-
-    # Create trainer
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=train_dataset,
-        dataset_text_field="text",
-        max_seq_length=max_seq_length,
-        dataset_num_proc=2,
-        packing=False,
-        args=training_args,
-    )
-
-    # Display memory stats
-    total_gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
-    allocated_gpu_memory = torch.cuda.memory_allocated() / (1024**3)
-    logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
-    logger.info(f"Total GPU Memory: {total_gpu_memory:.3f} GB")
-    logger.info(f"Currently Allocated: {allocated_gpu_memory:.3f} GB")
-
-    # Train model
-    logger.info("Starting training")
-    trainer_stats = trainer.train()
-
-    # Show final stats
-    training_time_seconds = trainer_stats.metrics.get("train_runtime", 0)
-    training_time_minutes = training_time_seconds / 60
-    peak_memory_gb = torch.cuda.max_memory_allocated() / (1024**3)
-
-    logger.info(f"Training completed in {training_time_minutes:.2f} minutes")
-    logger.info(f"Peak allocated memory = {peak_memory_gb:.3f} GB")
-
-    # Save model locally
-    logger.info(f"Saving model to {output_dir}")
-    model.save_pretrained(output_dir)
-    tokenizer.save_pretrained(output_dir)
-
-    # Upload to S3 if requested
-    if args.s3_upload:
-        # Get S3 model path from config
-        s3_config = config.get("s3", {})
-        model_s3_path = s3_config.get(
-            "model_prefix", f"models/{model_name.split('/')[-1]}-servicenow-qa"
-        )
-
-        # Get output formats
-        output_formats = config["output"].get("save_formats", ["lora", "gguf_q4_k_m"])
-
-        logger.info(f"Uploading model to S3: s3://{s3_bucket}/{model_s3_path}")
-
-        # Save LoRA adapters if specified
-        if "lora" in output_formats:
-            logger.info("Saving LoRA adapters")
-            model.save_pretrained_merged(output_dir, tokenizer, save_method="lora")
+    def _load_config(self):
+        """Load configuration from file"""
+        if not self.config_path:
+            default_paths = [
+                "configs/training/llm_finetuning.yaml",
+                "configs/training/default.yaml"
+            ]
             
-            # Upload directory contents to S3
-            for root, _, files in os.walk(output_dir):
-                for file in files:
-                    local_file_path = os.path.join(root, file)
-                    # Make the S3 key relative to the output directory
-                    relative_path = os.path.relpath(local_file_path, output_dir)
-                    s3_key = f"{model_s3_path}/lora/{relative_path}"
-                    s3_storage.upload_file(local_file_path, s3_key)
+            for path in default_paths:
+                if os.path.exists(path):
+                    self.config_path = path
+                    break
+            
+            if not self.config_path:
+                logger.warning("No configuration file found. Using default settings.")
+                return {}
+        
+        try:
+            with open(self.config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                logger.info(f"Loaded configuration from {self.config_path}")
+                return config
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+            return {}
+    
+    def _setup_cloud_credentials(self):
+        """Set up cloud credentials from environment or auth module"""
+        # Try to get credentials using the auth module
+        try:
+            credentials = get_cloud_credentials()
+            
+            # Set AWS credentials if available
+            if 'aws' in credentials:
+                aws_creds = credentials['aws']
+                if 'access_key_id' in aws_creds and 'secret_access_key' in aws_creds:
+                    os.environ['AWS_ACCESS_KEY_ID'] = aws_creds['access_key_id']
+                    os.environ['AWS_SECRET_ACCESS_KEY'] = aws_creds['secret_access_key']
+                    if 'region' in aws_creds:
+                        os.environ['AWS_REGION'] = aws_creds['region']
+            
+            # Set Lambda credentials if available
+            if 'lambda' in credentials and 'api_key' in credentials['lambda']:
+                os.environ['LAMBDA_API_KEY'] = credentials['lambda']['api_key']
+                
+        except Exception as e:
+            logger.debug(f"Could not load credentials from auth module: {e}")
+            # Continue with environment variables if set
+    
+    def create_instance(self, args):
+        """Create a new Lambda Cloud instance"""
+        if not self.lambda_manager:
+            logger.error("Lambda Cloud Manager not available. Check API key.")
+            return False
+        
+        # Build config overrides from arguments
+        config_override = {}
+        if args.name:
+            config_override['name'] = args.name
+        if args.region:
+            config_override['region_name'] = args.region
+        if args.instance_type:
+            config_override['instance_type_name'] = args.instance_type
+        if args.ssh_key:
+            config_override['ssh_key_names'] = [args.ssh_key]
+        
+        # Generate setup script with repo and requirements
+        repo_url = args.repo or "https://github.com/Hajiyevrehman/automatic-finetune.git"
+        user_data = self.lambda_manager.generate_setup_script(
+            repo_url=repo_url,
+            requirements="requirements.txt" if os.path.exists("requirements.txt") else None
+        )
+        config_override['user_data'] = user_data
+        
+        # Launch the instance
+        logger.info("Launching Lambda Cloud instance...")
+        instance_id = self.lambda_manager.launch_instance(config_override)
+        if not instance_id:
+            logger.error("Failed to launch instance")
+            return False
+        
+        try:
+            logger.info(f"Waiting for instance {instance_id} to be ready...")
+            ip_address = self.lambda_manager.wait_for_instance(instance_id)
+            logger.info(f"Instance {instance_id} is ready at {ip_address}")
+            
+            # Save instance details to file
+            instance_info = {
+                'instance_id': instance_id,
+                'ip_address': ip_address,
+                'launched_at': time.time(),
+                'config': self.lambda_manager.config
+            }
+            
+            with open('.lambda_instance.json', 'w') as f:
+                json.dump(instance_info, f, indent=2)
+            
+            logger.info(f"Instance details saved to .lambda_instance.json")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error waiting for instance: {e}")
+            return False
+    
+    def prepare_training(self, args):
+        """Prepare the instance for training by uploading files"""
+        # Check if we have instance info
+        instance_info = self._get_instance_info(args.instance_id)
+        if not instance_info:
+            return False
+        
+        ip_address = instance_info.get('ip_address')
+        if not ip_address:
+            logger.error(f"No IP address found for instance {args.instance_id}")
+            return False
+        
+        # Build scp commands to upload necessary files
+        import subprocess
+        
+        # Determine SSH key path
+        key_path = args.key_path
+        if not key_path:
+            # Try to find a key in standard locations
+            for possible_key in ['~/.ssh/id_rsa', '~/.ssh/id_ed25519']:
+                expanded = os.path.expanduser(possible_key)
+                if os.path.exists(expanded):
+                    key_path = expanded
+                    break
+        
+        if not key_path:
+            logger.warning("No SSH key found. SCP may fail if key authentication is required.")
+        
+        # Files to upload
+        files_to_upload = [
+            self.config_path
+        ]
+        
+        # Additional data files if specified
+        if args.data_files:
+            files_to_upload.extend(args.data_files.split(','))
+        
+        # Upload each file
+        for file_path in files_to_upload:
+            if not os.path.exists(file_path):
+                logger.warning(f"File {file_path} does not exist, skipping")
+                continue
+                
+            # Build scp command
+            scp_cmd = ['scp']
+            if key_path:
+                scp_cmd.extend(['-i', key_path])
+            
+            # Determine remote path - maintain directory structure under ~/automatic-finetune
+            remote_path = f"ubuntu@{ip_address}:~/automatic-finetune/{file_path}"
+            scp_cmd.extend([file_path, remote_path])
+            
+            logger.info(f"Uploading {file_path} to instance...")
+            try:
+                subprocess.run(scp_cmd, check=True)
+                logger.info(f"Successfully uploaded {file_path}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to upload {file_path}: {e}")
+                return False
+        
+        logger.info("All files uploaded successfully")
+        return True
+    
+    def run_training(self, args):
+        """Run the training on the instance"""
+        # Check if we have instance info
+        instance_info = self._get_instance_info(args.instance_id)
+        if not instance_info:
+            return False
+            
+        ip_address = instance_info.get('ip_address')
+        if not ip_address:
+            logger.error(f"No IP address found for instance {args.instance_id}")
+            return False
+        
+        # Determine SSH key path
+        key_path = args.key_path
+        if not key_path:
+            # Try to find a key in standard locations
+            for possible_key in ['~/.ssh/id_rsa', '~/.ssh/id_ed25519']:
+                expanded = os.path.expanduser(possible_key)
+                if os.path.exists(expanded):
+                    key_path = expanded
+                    break
+        
+        # Build SSH command for running training
+        import subprocess
+        ssh_cmd = ['ssh']
+        if key_path:
+            ssh_cmd.extend(['-i', key_path])
+        
+        # Support for running in tmux to prevent disconnection from killing job
+        use_tmux = args.use_tmux
+        
+        # Base training command
+        base_cmd = f"cd ~/automatic-finetune && "
+        
+        # Set environment variables
+        env_vars = ""
+        for var in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION']:
+            if os.environ.get(var):
+                env_vars += f"{var}='{os.environ.get(var)}' "
+        
+        # Add environment variables to command
+        if env_vars:
+            base_cmd += env_vars + " "
+        
+        # Training script/command
+        if args.script:
+            train_cmd = f"python {args.script}"
+        else:
+            # Use default training script from your paste.txt
+            train_cmd = f"python -c \"$(cat <<'EOT'\n{self._get_default_training_script()}\nEOT\n)\""
+        
+        # Add config path if provided
+        if self.config_path:
+            config_basename = os.path.basename(self.config_path)
+            remote_config_path = f"~/automatic-finetune/{self.config_path}"
+            
+            # If we're running a custom script, add the config as an argument
+            if args.script:
+                train_cmd += f" --config {remote_config_path}"
+        
+        # Combine commands
+        if use_tmux:
+            # Run in a new tmux session that can be attached to later
+            full_cmd = f"{base_cmd} tmux new-session -d -s training '{train_cmd}'"
+            attach_cmd = f"ssh {'-i ' + key_path if key_path else ''} ubuntu@{ip_address} 'tmux attach-session -t training'"
+        else:
+            # Run directly
+            full_cmd = f"{base_cmd}{train_cmd}"
+            attach_cmd = None
+        
+        ssh_cmd.extend([f'ubuntu@{ip_address}', full_cmd])
+        
+        logger.info(f"Starting training on instance {args.instance_id} at {ip_address}")
+        try:
+            subprocess.run(ssh_cmd, check=True)
+            
+            if use_tmux:
+                logger.info("Training started in tmux session 'training'")
+                logger.info(f"To view the training progress, run:\n{attach_cmd}")
+            
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to start training: {e}")
+            return False
+    
+    def terminate_instance(self, args):
+        """Terminate an instance"""
+        if not self.lambda_manager:
+            logger.error("Lambda Cloud Manager not available. Check API key.")
+            return False
+        
+        logger.info(f"Terminating instance {args.instance_id}...")
+        try:
+            self.lambda_manager.terminate_instance(args.instance_id)
+            logger.info(f"Instance {args.instance_id} termination request sent")
+            
+            # Remove instance info file if it exists
+            if os.path.exists('.lambda_instance.json'):
+                stored_info = self._get_instance_info()
+                if stored_info and stored_info.get('instance_id') == args.instance_id:
+                    os.remove('.lambda_instance.json')
+                    logger.info("Removed stored instance info")
+            
+            return True
+        except Exception as e:
+            logger.error(f"Failed to terminate instance: {e}")
+            return False
+    
+    def list_instances(self, args):
+        """List running instances"""
+        if not self.lambda_manager:
+            logger.error("Lambda Cloud Manager not available. Check API key.")
+            return False
+        
+        try:
+            instances = self.lambda_manager.list_instances()
+            if not instances:
+                logger.info("No instances found")
+                return True
+                
+            print("\nRunning Instances:")
+            print("-" * 80)
+            print(f"{'ID':<24} {'Name':<30} {'Status':<10} {'IP Address':<15} {'Type':<15}")
+            print("-" * 80)
+            for instance in instances:
+                print(f"{instance.get('id', 'N/A'):<24} {instance.get('name', 'N/A'):<30} "
+                      f"{instance.get('status', 'N/A'):<10} {instance.get('ip', 'N/A'):<15} "
+                      f"{instance.get('instance_type', {}).get('name', 'N/A'):<15}")
+            print("-" * 80)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to list instances: {e}")
+            return False
 
-        # Save in GGUF format if specified
-        gguf_formats = [fmt for fmt in output_formats if fmt.startswith("gguf_")]
-        if gguf_formats:
-            logger.info("Converting to GGUF format(s)")
-            for gguf_format in gguf_formats:
-                # Extract quantization method
-                quant_method = gguf_format.replace("gguf_", "")
-                logger.info(f"Creating GGUF with quantization: {quant_method}")
-                model.save_pretrained_gguf(
-                    output_dir, tokenizer, quantization_method=quant_method
-                )
-                gguf_file = f"{output_dir}-unsloth-{quant_method.upper()}.gguf"
-                s3_key = f"{model_s3_path}/gguf/model-{quant_method}.gguf"
-                s3_storage.upload_file(gguf_file, s3_key)
+    def download_results(self, args):
+        """Download training results from instance"""
+        # Check if we have instance info
+        instance_info = self._get_instance_info(args.instance_id)
+        if not instance_info:
+            return False
+            
+        ip_address = instance_info.get('ip_address')
+        if not ip_address:
+            logger.error(f"No IP address found for instance {args.instance_id}")
+            return False
+        
+        # Determine SSH key path
+        key_path = args.key_path
+        if not key_path:
+            # Try to find a key in standard locations
+            for possible_key in ['~/.ssh/id_rsa', '~/.ssh/id_ed25519']:
+                expanded = os.path.expanduser(possible_key)
+                if os.path.exists(expanded):
+                    key_path = expanded
+                    break
+        
+        # Create local results directory
+        results_dir = args.output_dir or "results"
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # Build scp command to download
+        import subprocess
+        scp_cmd = ['scp', '-r']
+        if key_path:
+            scp_cmd.extend(['-i', key_path])
+        
+        # Remote path to download from
+        remote_path = f"ubuntu@{ip_address}:~/automatic-finetune/models/finetuned/*"
+        
+        # Build full command
+        scp_cmd.extend([remote_path, results_dir])
+        
+        logger.info(f"Downloading training results from instance {args.instance_id}...")
+        try:
+            subprocess.run(scp_cmd, check=True)
+            logger.info(f"Results downloaded to {results_dir}")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to download results: {e}")
+            return False
+    
+    def _get_instance_info(self, instance_id=None):
+        """Get instance info from file or Lambda API"""
+        # Try to get from file first
+        try:
+            if os.path.exists('.lambda_instance.json'):
+                with open('.lambda_instance.json', 'r') as f:
+                    instance_info = json.load(f)
+                
+                # If instance_id is provided, verify it matches
+                if instance_id and instance_info.get('instance_id') != instance_id:
+                    # Try to get info from Lambda API
+                    if self.lambda_manager:
+                        ip_address = self.lambda_manager.get_instance_ip(instance_id)
+                        if ip_address:
+                            return {'instance_id': instance_id, 'ip_address': ip_address}
+                    return None
+                
+                return instance_info
+        except Exception:
+            pass
+            
+        # If not found in file but we have instance_id, try Lambda API
+        if instance_id and self.lambda_manager:
+            ip_address = self.lambda_manager.get_instance_ip(instance_id)
+            if ip_address:
+                return {'instance_id': instance_id, 'ip_address': ip_address}
+        
+        logger.error("No instance information found. Run list-instances to see available instances.")
+        return None
+    
+    def _get_default_training_script(self):
+        """Get the default training script (from your paste.txt)"""
+        # For brevity, we'll return a placeholder that imports the full code
+        # from the repository instead of embedding the entire script
+        return """
+import os
+import sys
+import yaml
 
-    # Test inference
-    logger.info("Testing inference with finetuned model")
-    FastLanguageModel.for_inference(model)
+# Load training config
+config_path = "configs/training/llm_finetuning.yaml"
+with open(config_path, 'r') as f:
+    config = yaml.safe_load(f)
 
-    test_question = "How do I reset my ServiceNow password?"
+# Import and run Unsloth fine-tuning
+print("Starting LLM fine-tuning with Unsloth...")
 
-    # Format based on format_type
-    if format_type == "chatml":
-        test_prompt = f"""<|im_start|>system
-You are a helpful AI assistant.<|im_end|>
-<|im_start|>user
-{test_question}<|im_end|>
-<|im_start|>assistant
+# Import unsloth and required libraries  
+import unsloth
+from unsloth import FastLanguageModel
+import torch
+import mlflow
+
+# Run the main training function - this executes the full pipeline
+# similar to your pasted code but imports from the repo
+print("Importing from repository...")
+from src.finetuning.unsloth_trainer import train_model_with_unsloth
+
+# Run the training
+print("Starting training...")
+train_model_with_unsloth(config)
 """
-    else:
-        test_prompt = f"Question: {test_question}\nAnswer:"
-
-    inputs = tokenizer(test_prompt, return_tensors="pt").to("cuda")
-    text_streamer = TextStreamer(tokenizer)
-    logger.info("Model response:")
-    _ = model.generate(**inputs, streamer=text_streamer, max_new_tokens=200)
-
-    logger.info("Finetuning process completed successfully!")
 
 
 def main():
-    """Main function"""
-    args = parse_args()
-
-    # Load configurations
-    try:
-        logger.info(f"Loading training config from {args.config}")
-        training_config = load_config(args.config)
-
-        logger.info(f"Loading data config from {args.data_config}")
-        data_config = load_config(args.data_config)
-    except Exception as e:
-        logger.error(f"Error loading configuration: {e}")
-        sys.exit(1)
-
-    # Override config with command-line arguments
-    training_config = override_config_with_args(training_config, args)
-
-    # Run finetuning
-    finetune_model(training_config, data_config)
+    """CLI entry point for fine-tuning workflow"""
+    parser = argparse.ArgumentParser(description="LLM Fine-tuning Workflow on Lambda Cloud")
+    
+    # Global arguments
+    parser.add_argument('--config', '-c', help="Path to configuration file")
+    parser.add_argument('--verbose', '-v', action='store_true', help="Enable verbose logging")
+    
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+    
+    # Create instance command
+    create_parser = subparsers.add_parser('create-instance', help='Create a new Lambda Cloud instance')
+    create_parser.add_argument('--name', help='Instance name')
+    create_parser.add_argument('--region', help='Region name')
+    create_parser.add_argument('--instance-type', help='Instance type')
+    create_parser.add_argument('--ssh-key', help='SSH key name')
+    create_parser.add_argument('--repo', help='Git repository to clone (default: your repo)')
+    create_parser.set_defaults(func=lambda w, a: w.create_instance(a))
+    
+    # List instances command
+    list_parser = subparsers.add_parser('list-instances', help='List running Lambda Cloud instances')
+    list_parser.set_defaults(func=lambda w, a: w.list_instances(a))
+    
+    # Prepare training command
+    prepare_parser = subparsers.add_parser('prepare', help='Prepare instance for training')
+    prepare_parser.add_argument('instance_id', help='Instance ID')
+    prepare_parser.add_argument('--key-path', help='Path to SSH private key')
+    prepare_parser.add_argument('--data-files', help='Comma-separated list of data files to upload')
+    prepare_parser.set_defaults(func=lambda w, a: w.prepare_training(a))
+    
+    # Run training command
+    train_parser = subparsers.add_parser('train', help='Run training on instance')
+    train_parser.add_argument('instance_id', help='Instance ID')
+    train_parser.add_argument('--key-path', help='Path to SSH private key')
+    train_parser.add_argument('--script', help='Custom training script path (relative to repo root)')
+    train_parser.add_argument('--use-tmux', action='store_true', help='Run in tmux session to prevent disconnect')
+    train_parser.set_defaults(func=lambda w, a: w.run_training(a))
+    
+    # Download results command
+    download_parser = subparsers.add_parser('download', help='Download training results')
+    download_parser.add_argument('instance_id', help='Instance ID')
+    download_parser.add_argument('--key-path', help='Path to SSH private key')
+    download_parser.add_argument('--output-dir', help='Local directory to save results')
+    download_parser.set_defaults(func=lambda w, a: w.download_results(a))
+    
+    # Terminate instance command
+    terminate_parser = subparsers.add_parser('terminate', help='Terminate an instance')
+    terminate_parser.add_argument('instance_id', help='Instance ID to terminate')
+    terminate_parser.set_defaults(func=lambda w, a: w.terminate_instance(a))
+    
+    # All-in-one workflow
+    workflow_parser = subparsers.add_parser('run-workflow', help='Run end-to-end fine-tuning workflow')
+    workflow_parser.add_argument('--instance-type', default='gpu_1x_a10', help='Instance type')
+    workflow_parser.add_argument('--key-path', help='Path to SSH private key')
+    workflow_parser.add_argument('--keep-instance', action='store_true', help='Do not terminate instance after training')
+    workflow_parser.add_argument('--output-dir', default='results', help='Directory for downloading results')
+    
+    args = parser.parse_args()
+    
+    # Set log level based on verbosity
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+    
+    # Initialize workflow
+    workflow = FineTuningWorkflow(config_path=args.config)
+    
+    # Run appropriate function based on command
+    if args.command == 'run-workflow':
+        # Create instance
+        create_args = argparse.Namespace(
+            name=f"LLM-Finetune-{int(time.time())}",
+            region=None,
+            instance_type=args.instance_type,
+            ssh_key=None,
+            repo=None
+        )
+        logger.info("Step 1: Creating Lambda Cloud instance...")
+        if not workflow.create_instance(create_args):
+            return 1
+        
+        # Get instance ID from stored info
+        with open('.lambda_instance.json', 'r') as f:
+            instance_info = json.load(f)
+            instance_id = instance_info['instance_id']
+        
+        # Wait for instance to be fully initialized
+        logger.info("Waiting 60 seconds for instance initialization...")
+        time.sleep(60)
+        
+        # Prepare instance
+        prepare_args = argparse.Namespace(
+            instance_id=instance_id,
+            key_path=args.key_path,
+            data_files=None
+        )
+        logger.info("Step 2: Preparing instance for training...")
+        if not workflow.prepare_training(prepare_args):
+            return 1
+        
+        # Run training
+        train_args = argparse.Namespace(
+            instance_id=instance_id,
+            key_path=args.key_path,
+            script=None,
+            use_tmux=True
+        )
+        logger.info("Step 3: Running training...")
+        if not workflow.run_training(train_args):
+            return 1
+            
+        # Wait for completion (simple approach - more sophisticated monitoring could be added)
+        logger.info("Training is running in tmux session. Waiting 10 minutes before downloading results...")
+        logger.info(f"You can check progress by running: ssh ubuntu@{instance_info['ip_address']} 'tmux attach -t training'")
+        time.sleep(600)  # Wait 10 minutes - this could be much longer for real training
+        
+        # Download results
+        download_args = argparse.Namespace(
+            instance_id=instance_id,
+            key_path=args.key_path,
+            output_dir=args.output_dir
+        )
+        logger.info("Step 4: Downloading training results...")
+        workflow.download_results(download_args)
+        
+        # Terminate instance if not keeping
+        if not args.keep_instance:
+            terminate_args = argparse.Namespace(
+                instance_id=instance_id
+            )
+            logger.info("Step 5: Terminating instance...")
+            workflow.terminate_instance(terminate_args)
+        else:
+            logger.info(f"Instance {instance_id} kept running as requested.")
+        
+        logger.info("Workflow completed successfully!")
+        
+    elif args.command and hasattr(args, 'func'):
+        # Call the appropriate function with the workflow and args
+        if not args.func(workflow, args):
+            return 1
+    else:
+        parser.print_help()
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

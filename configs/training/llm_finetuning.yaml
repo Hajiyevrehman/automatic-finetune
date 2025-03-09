@@ -1,18 +1,16 @@
 # LLM Finetuning Configuration
-# configs/training/llm_finetuning.yaml
-
 # Model configuration
 model:
-  name: "unsloth/Qwen2.5-7B"  # Model to finetune
-  max_seq_length: 2048        # Maximum sequence length
-  load_in_4bit: true          # Whether to use 4-bit quantization
+  name: "unsloth/Qwen2.5-3B" # Model to finetune
+  max_seq_length: 2048 # Maximum sequence length
+  load_in_4bit: true # Whether to use 4-bit quantization
 
 # LoRA configuration
 lora:
-  r: 16                       # LoRA rank
-  alpha: 16                   # LoRA alpha
-  dropout: 0                  # LoRA dropout
-  target_modules:             # Modules to apply LoRA to
+  r: 16 # LoRA rank
+  alpha: 16 # LoRA alpha
+  dropout: 0 # LoRA dropout
+  target_modules: # Modules to apply LoRA to
     - "q_proj"
     - "k_proj"
     - "v_proj"
@@ -20,40 +18,51 @@ lora:
     - "gate_proj"
     - "up_proj"
     - "down_proj"
-  use_rslora: false           # Whether to use rank-stabilized LoRA
+  use_rslora: false # Whether to use rank-stabilized LoRA
 
 # Training configuration
 training:
-  batch_size: 2               # Batch size per device
-  gradient_accumulation_steps: 4  # Gradient accumulation steps
-  num_train_epochs: 3         # Number of training epochs
-  learning_rate: 0.0002       # Learning rate
-  warmup_steps: 5             # Warmup steps
-  weight_decay: 0.01          # Weight decay
+  batch_size: 16 # Batch size per device
+  eval_batch_size: 4 # Evaluation batch size per device
+  gradient_accumulation_steps: 8 # Gradient accumulation steps
+  num_train_epochs: 3 # Number of training epochs
+  learning_rate: 0.0002 # Learning rate
+  warmup_steps: 5 # Warmup steps
+  weight_decay: 0.01 # Weight decay
   lr_scheduler_type: "linear" # Learning rate scheduler
-  seed: 3407                  # Random seed
-  logging_steps: 10           # Logging frequency
-  evaluation_strategy: "no"   # Evaluation strategy
-  save_strategy: "epoch"      # Save strategy
-  save_total_limit: 3         # Maximum number of saved checkpoints
-  optim: "adamw_8bit"         # Optimizer
+  seed: 3407 # Random seed
+  logging_steps: 5 # Log metrics every X steps
+  logging_strategy: "steps" # Log based on steps
+  evaluation_strategy: "steps" # Evaluate based on steps
+  eval_steps: 20 # Run evaluation every X steps
+  save_strategy: "steps" # Save based on steps
+  save_steps: 50 # Save every X steps
+  save_total_limit: 5 # Maximum number of saved checkpoints
+  optim: "adamw_8bit" # Optimizer
+  validation_split: 0.1 # Validation split ratio
+  test_mode: True # Whether to run in test mode (using only a fraction of the data)
+  test_fraction: 0.2 # Fraction of data to use in test mode
 
 # Data configuration
 data:
-  train_file: "data/processed/servicenow-qa_converted.json"  # Training data file
-  format_type: "chatml"       # Data format type (chatml, alpaca, etc.)
+  train_file: "data/processed/servicenow-qa_converted.json" # Training data file
+  format_type: "chatml" # Data format type (chatml, alpaca, etc.)
 
 # Output configuration
 output:
-  dir: "models/finetuned"     # Output directory
-  save_formats:               # Formats to save the model in
-    - "lora"                  # LoRA adapters only
-    - "gguf_q4_k_m"           # GGUF 4-bit quantized
-  push_to_hub: false          # Whether to push to Hugging Face Hub
-  hub_model_id: ""            # Hugging Face Hub model ID
-  hub_token: ""               # Hugging Face Hub token
+  dir: "models/finetuned" # Output directory
+  save_formats: # Formats to save the model in
+    - "lora" # LoRA adapters only
+  push_to_hub: false # Whether to push to Hugging Face Hub
+  hub_model_id: "" # Hugging Face Hub model ID
+  hub_token: "" # Hugging Face Hub token
 
 # S3 configuration
 s3:
-  bucket: "llm-finetuning-rahman-1234"  # S3 bucket name
-  model_prefix: "models/qwen2.5-7b-servicenow-qa"  # S3 model prefix
+  bucket: "llm-finetuning-rahman-1234" # S3 bucket name
+  model_prefix: "models/qwen2.5-3b-servicenow-qa" # S3 model prefix
+
+# MLflow configuration
+mlflow:
+  tracking_uri: "" # MLflow tracking URI (leave empty for local)
+  run_name: "qwen2.5-3b-finetune" # MLflow run name
