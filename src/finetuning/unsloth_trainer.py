@@ -1,19 +1,48 @@
-import unsloth
-from unsloth import FastLanguageModel, is_bfloat16_supported
+#!/usr/bin/env python3
+"""
+Unsloth-powered trainer for fine-tuning LLMs.
+Handles AWS credentials from .env file for S3 access.
+"""
 
 import os
 import sys
 import json
 import yaml
 import torch
-import mlflow
 from pathlib import Path
 from datasets import Dataset, DatasetDict
 from transformers import (
     BitsAndBytesConfig,
     TextStreamer
 )
+from unsloth import FastLanguageModel, is_bfloat16_supported
 from trl import SFTConfig, SFTTrainer
+
+# Import MLflow for tracking experiments
+import mlflow
+
+# Try to load environment variables from .env file
+def load_env_vars():
+    """Load environment variables from .env file if available"""
+    env_paths = [
+        ".env",
+        "scripts/.env",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../.env"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../scripts/.env"),
+    ]
+    
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            print(f"Loading environment variables from {env_path}")
+            with open(env_path, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        os.environ[key] = value
+            return True
+    
+    return False
 
 def train_model_with_unsloth(config=None):
     """
@@ -22,10 +51,20 @@ def train_model_with_unsloth(config=None):
     Args:
         config (dict): Configuration dictionary for training
     """
+    # Load environment variables if possible
+    load_env_vars()
+    
+    # Print AWS credential status (no values, just if they exist)
+    if os.environ.get('AWS_ACCESS_KEY_ID') and os.environ.get('AWS_SECRET_ACCESS_KEY'):
+        print("AWS credentials found in environment")
+    else:
+        print("AWS credentials not found. S3 operations will likely fail.")
+    
+    if config is None:
         # Load config from default location if not provided
-    config_path = "configs/training/llm_finetuning.yaml"
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
+        config_path = "configs/training/llm_finetuning.yaml"
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
     
     # Initialize MLflow
     mlflow.set_experiment("llm_finetuning")
@@ -54,7 +93,7 @@ def train_model_with_unsloth(config=None):
             "test_fraction": config["training"].get("test_fraction", 0.1)
         })
         
-        # S3 Storage Module for downloading data
+        # S3 Storage Module
         class S3Storage:
             def __init__(self, bucket_name):
                 import boto3
@@ -62,6 +101,7 @@ def train_model_with_unsloth(config=None):
                 self.bucket = bucket_name
 
             def download_file(self, s3_path, local_path):
+                """Download a file from S3 to local storage"""
                 try:
                     self.s3.download_file(self.bucket, s3_path, local_path)
                     print(f"Successfully downloaded {s3_path} to {local_path}")
@@ -69,8 +109,19 @@ def train_model_with_unsloth(config=None):
                 except Exception as e:
                     print(f"Error downloading from S3: {e}")
                     return False
+
+            def upload_file(self, local_path, s3_path):
+                """Upload a file from local storage to S3"""
+                try:
+                    self.s3.upload_file(local_path, self.bucket, s3_path)
+                    print(f"Successfully uploaded {local_path} to {s3_path}")
+                    return True
+                except Exception as e:
+                    print(f"Error uploading to S3: {e}")
+                    return False
                     
             def upload_directory(self, local_dir, s3_prefix):
+                """Upload an entire directory to S3"""
                 try:
                     success_count = 0
                     error_count = 0
@@ -78,6 +129,7 @@ def train_model_with_unsloth(config=None):
                     for root, _, files in os.walk(local_dir):
                         for file in files:
                             local_file_path = os.path.join(root, file)
+                            # Make the S3 key relative to the local directory
                             relative_path = os.path.relpath(local_file_path, local_dir)
                             s3_key = f"{s3_prefix}/{relative_path}"
                             
@@ -91,23 +143,13 @@ def train_model_with_unsloth(config=None):
                 except Exception as e:
                     print(f"Error uploading directory to S3: {e}")
                     return False
-                    
-            def upload_file(self, local_path, s3_path):
-                try:
-                    self.s3.upload_file(local_path, self.bucket, s3_path)
-                    print(f"Successfully uploaded {local_path} to {s3_path}")
-                    return True
-                except Exception as e:
-                    print(f"Error uploading to S3: {e}")
-                    return False
 
-        # Setup S3 storage
+        # Initialize S3 storage
         s3_bucket = config["s3"]["bucket"]
         s3_storage = S3Storage(s3_bucket)
 
         # Download data from S3
         train_file = config["data"]["train_file"]
-        
         # If the train file is already a full S3 path, use it directly
         # Otherwise, assume it's a relative path in the S3 bucket
         if train_file.startswith("s3://"):
@@ -130,7 +172,8 @@ def train_model_with_unsloth(config=None):
         print(f"Downloading dataset from s3://{s3_bucket}/{s3_data_path}")
         print(f"Saving to local path: {local_data_path}")
 
-        # Create mock data if download fails
+        # TEMPORARY: For testing, use mock data if download fails
+        # For demonstration purposes, create a simple dataset
         success = False
         try:
             success = s3_storage.download_file(s3_data_path, local_data_path)
@@ -172,6 +215,7 @@ def train_model_with_unsloth(config=None):
         if len(dataset_raw) > 0:
             print(json.dumps(dataset_raw[0], indent=2))
 
+        # Examine the data structure to determine the correct approach
         # Check if data is already in the messages format
         is_messages_format = "messages" in dataset_raw[0] if dataset_raw else False
         print(f"\nData is{'already' if is_messages_format else ' not'} in messages format")
@@ -232,10 +276,15 @@ def train_model_with_unsloth(config=None):
                 # If it's another error, re-raise it
                 raise
 
-        # Chat formatting functions
+        # Check what special tokens the model already has
+        print("Special tokens:", tokenizer.special_tokens_map)
+        print("Vocab size before:", len(tokenizer))
+
+        # Store the EOS token for later use
         EOS_TOKEN = tokenizer.eos_token
         print(f"EOS token: {EOS_TOKEN}")
 
+        # Define custom chat template using EXISTING tokens (no embedding layer changes)
         def format_chat_to_chatml(messages):
             """Format messages into ChatML format using existing tokens"""
             formatted_text = ""
@@ -253,6 +302,7 @@ def train_model_with_unsloth(config=None):
             formatted_text += EOS_TOKEN
             return formatted_text
 
+        # Convert the dataset to use a text field instead of messages
         def convert_messages_to_text(example):
             """Convert messages format to formatted text"""
             if "messages" in example:
@@ -301,6 +351,11 @@ def train_model_with_unsloth(config=None):
 
         print(f"Dataset split into {len(datasets['train'])} training examples and {len(datasets['validation'])} validation examples")
 
+        # Print sample of the formatted dataset
+        print("\n=== SAMPLE OF FORMATTED DATASET ===")
+        if len(datasets["train"]) > 0:
+            print(datasets["train"][0])
+
         # Add LoRA adapters
         lora_config = config.get("lora", {})
         print("Adding LoRA adapters")
@@ -346,6 +401,7 @@ def train_model_with_unsloth(config=None):
             fp16=not is_bfloat16_supported(),
             bf16=is_bfloat16_supported(),
             
+            # Use the configuration from YAML
             logging_strategy=train_config.get("logging_strategy", "steps"),
             logging_steps=train_config.get("logging_steps", 5),
             
@@ -356,6 +412,7 @@ def train_model_with_unsloth(config=None):
             save_steps=train_config.get("save_steps", 50),
             save_total_limit=train_config.get("save_total_limit", 3),
             
+            # Other configurations
             optim=train_config.get("optim", "adamw_8bit"),
             weight_decay=train_config.get("weight_decay", 0.01),
             lr_scheduler_type=train_config.get("lr_scheduler_type", "linear"),
@@ -367,7 +424,6 @@ def train_model_with_unsloth(config=None):
             report_to="mlflow",
             run_name=mlflow_run_name,
         )
-        
         # Create trainer with text-based dataset and validation set
         print("Creating SFTTrainer with train and validation datasets...")
         trainer = SFTTrainer(
@@ -376,7 +432,7 @@ def train_model_with_unsloth(config=None):
             train_dataset=datasets["train"],
             eval_dataset=datasets["validation"],
             args=sft_args,
-            dataset_text_field="text",
+            dataset_text_field="text",  # Specify the text field to use
         )
 
         # Display memory stats
@@ -467,7 +523,7 @@ def train_model_with_unsloth(config=None):
 
             return output
 
-        # Test with your example
+        # Test with an example
         test_question = "How do I reset my ServiceNow password?"
 
         # Format the test prompt and generate response
@@ -481,8 +537,8 @@ def train_model_with_unsloth(config=None):
 
         print("Finetuning process completed successfully!")
         
-        # Show training metrics
-        print("\n=== Testing MLflow Tracking and Displaying Training Progress ===")
+        # Display training progress metrics
+        print("\n=== Training Progress and Metrics ===")
         try:
             # Get the current run ID
             run_id = run.info.run_id
@@ -498,8 +554,16 @@ def train_model_with_unsloth(config=None):
                 
                 # Display available metrics
                 print(f"Metrics available: {list(run_info.data.metrics.keys())}")
+                
+                # Display final metrics
+                print("\n=== Final Metrics ===")
+                if 'loss' in run_info.data.metrics:
+                    print(f"Training loss: {run_info.data.metrics.get('loss', 'N/A')}")
+                if 'train_loss' in run_info.data.metrics:
+                    print(f"Training loss: {run_info.data.metrics.get('train_loss', 'N/A')}")
+                if 'eval_loss' in run_info.data.metrics:
+                    print(f"Validation loss: {run_info.data.metrics.get('eval_loss', 'N/A')}")
             else:
                 print(f"MLflow run exists but no metrics were logged.")
         except Exception as e:
-            print(f"Error testing MLflow tracking: {e}")
-            print("MLflow tracking may have failed.")
+            print(f"Error accessing MLflow tracking: {e}")
