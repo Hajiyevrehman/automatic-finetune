@@ -66,7 +66,7 @@ mkdir -p src/finetuning
 
 # Create virtual environment
 echo "Creating virtual environment at $VENV_DIR..."
-python -m venv --clear $VENV_DIR --system-site-packages=false
+python -m venv --clear $VENV_DIR
 
 # Activate it
 source $VENV_DIR/bin/activate
