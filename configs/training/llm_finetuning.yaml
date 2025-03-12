@@ -40,7 +40,7 @@ training:
   save_total_limit: 5 # Maximum number of saved checkpoints
   optim: "adamw_8bit" # Optimizer
   validation_split: 0.1 # Validation split ratio
-  test_mode: True # Whether to run in test mode (using only a fraction of the data)
+  test_mode: false # Whether to run in test mode (using only a fraction of the data)
   test_fraction: 0.2 # Fraction of data to use in test mode
 
 # Data configuration

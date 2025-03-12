@@ -1,233 +1,224 @@
-# MLOps LLM Fine-tuning Project
+Data stage:
+"# LLM Fine-Tuning Data Pipeline
 
-A comprehensive MLOps pipeline for fine-tuning Large Language Models using Hugging Face Transformers, focusing on efficient techniques like LoRA and QLoRA with SFT (Supervised Fine-Tuning) in cloud environments.
+A comprehensive, modular data pipeline for preparing datasets for fine-tuning Large Language Models, with S3 integration for scalable cloud storage.
 
-## Project Overview
+## Features
 
-This project implements an end-to-end MLOps pipeline for fine-tuning Large Language Models, with a focus on:
-
-- Data preparation and versioning
-- Parameter-efficient fine-tuning (LoRA/QLoRA)
-- Model versioning and experiment tracking
-- Cloud-based training infrastructure
-- Scalable model deployment
-- Monitoring and observability
-
-The pipeline is designed to leverage cloud resources for training larger models like Llama 3 (8B) and deploying them efficiently in production environments.
+- **Complete Data Processing Pipeline**: From raw data to tokenized, split datasets ready for fine-tuning
+- **Cloud Integration**: Built-in S3 support for storing and retrieving datasets
+- **Modular Design**: Process datasets with a single command or step-by-step
+- **Reproducible**: Uses DVC for tracking data versions and pipeline stages
+- **Extensible**: Easy to add new dataset converters or processing steps
 
 ## Project Structure
 
 ```
-llm-finetuning-project/
-├── data/               # Data files and processing
-├── src/                # Source code
-├── configs/            # Configuration files
-│   ├── cloud/          # Cloud infrastructure configs
-│   ├── training/       # Training configurations
-│   └── deployment/     # Deployment configurations
-├── models/             # Model checkpoints and weights
-├── notebooks/          # Jupyter notebooks
-├── scripts/            # Utility scripts
-├── tests/              # Test cases
-├── logs/               # Log files
-├── docker/             # Docker configuration
-├── mlflow/             # MLflow tracking
-├── terraform/          # Infrastructure as code
-├── kubernetes/         # K8s deployment manifests
-├── dvc.yaml            # DVC pipeline
-└── requirements.txt    # Dependencies
+.
+├── configs/                 # Configuration files
+│   ├── data/                # Data processing configs
+│   └── training/            # Training configs
+├── data/                    # Data directory
+│   ├── processed/           # Processed and tokenized data
+│   ├── raw/                 # Raw data files
+│   └── validation/          # Validated data
+├── dvc.yaml                 # DVC pipeline configuration
+├── scripts/                 # Utility scripts
+│   ├── dataset_converters/  # Dataset-specific converters
+│   │   └── servicenow_converter.py
+│   └── utils/               # Utility scripts
+│       └── setup_dvc.py
+├── src/                     # Source code
+│   ├── cli/                 # Command-line interfaces
+│   │   └── data_cli.py
+│   ├── cloud/               # Cloud integration (AWS/S3)
+│   │   ├── auth.py
+│   │   └── storage.py
+│   └── data/                # Data processing pipeline
+│       └── pipeline.py
+└── tests/                   # Test suite
+    ├── test_cloud.py
+    └── test_pipeline.py
 ```
-
-## Project Roadmap
-
-### Day 1: Project Setup & Data Preparation
-
-- [ ] Initialize project repository with Git
-- [ ] Set up DVC with cloud storage backend (S3/GCS/Azure)
-- [ ] Create data processing pipeline
-  - [ ] Data cleaning functionality
-  - [ ] Data validation checks
-  - [ ] Format conversion for SFT
-- [ ] Version raw and processed datasets in cloud storage
-- [ ] Configure cloud authentication and permissions
-
-### Day 2: Cloud Infrastructure Setup
-
-- [ ] Set up Terraform/CloudFormation for infrastructure as code
-  - [ ] Define GPU compute resources
-  - [ ] Configure storage resources
-  - [ ] Set up networking and security
-- [ ] Create cloud storage buckets for datasets and model artifacts
-- [ ] Configure cloud logging and monitoring
-- [ ] Test infrastructure deployment and teardown
-- [ ] Document cloud setup process
-
-### Day 3: Model Selection & Training Setup
-
-- [ ] Implement model selection module
-  - [ ] Support for Llama 3, Mistral, Gemma models
-  - [ ] Proper tokenizer configuration
-- [ ] Create training configurations
-  - [ ] LoRA parameters
-  - [ ] QLoRA parameters
-  - [ ] Hyperparameter settings
-  - [ ] Distributed training settings
-- [ ] Set up MLflow on cloud infrastructure for experiment tracking
-- [ ] Implement baseline evaluation
-- [ ] Create cloud training job configuration
-
-### Day 4-5: Training Implementation
-
-- [ ] Implement LoRA fine-tuning
-  - [ ] Adapter configuration
-  - [ ] Training loop with proper logging
-  - [ ] Cloud storage integration
-- [ ] Implement QLoRA for memory efficiency
-  - [ ] 4-bit quantization setup
-  - [ ] Gradient accumulation
-- [ ] Add distributed training support
-  - [ ] DeepSpeed integration
-  - [ ] FSDP configuration
-- [ ] Create checkpointing to cloud storage
-- [ ] Set up training job orchestration
-  - [ ] Kubernetes-based orchestration
-  - [ ] Cloud-native job services
-- [ ] Implement automatic metrics logging
-
-### Day 6: Evaluation & Optimization
-
-- [ ] Implement comprehensive evaluation pipeline
-  - [ ] Generation quality metrics
-  - [ ] Training metrics analysis
-- [ ] Create visualization for training progress
-- [ ] Optimize hyperparameters based on initial results
-- [ ] Implement model export and merging utilities
-- [ ] Set up model registry integration
-- [ ] Create automated model evaluation workflow
-
-### Day 7: Deployment Pipeline
-
-- [ ] Create Kubernetes deployment manifests
-  - [ ] Model serving pods
-  - [ ] Auto-scaling configuration
-  - [ ] Resource requests/limits
-- [ ] Implement FastAPI application for serving
-  - [ ] Inference endpoints
-  - [ ] Input validation
-  - [ ] Health checks
-- [ ] Create CI/CD pipeline for deployment
-  - [ ] GitHub Actions/Jenkins workflows
-  - [ ] Testing stages
-  - [ ] Deployment stages
-- [ ] Set up blue/green deployment strategy
-- [ ] Implement deployment monitoring
-
-### Day 8: Monitoring & Observability
-
-- [ ] Set up model performance monitoring
-  - [ ] Latency metrics
-  - [ ] Throughput metrics
-  - [ ] Error rates
-- [ ] Implement prediction data drift detection
-- [ ] Create alerts and notifications
-- [ ] Set up dashboards for model performance
-- [ ] Implement logging and tracing
-- [ ] Configure auto-scaling based on traffic
-
-### Day 9: Documentation & Testing
-
-- [ ] Write comprehensive documentation
-  - [ ] Setup instructions
-  - [ ] Cloud deployment guide
-  - [ ] Usage examples
-  - [ ] Configuration options
-- [ ] Implement test cases
-  - [ ] Data processing tests
-  - [ ] Model tests
-  - [ ] API tests
-  - [ ] Infrastructure tests
-- [ ] Create end-to-end example
-- [ ] Document disaster recovery procedures
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.10+
-- Cloud provider account (AWS/GCP/Azure)
-- Terraform or CloudFormation
-- Git & Git LFS
-- Docker
-- kubectl (for Kubernetes deployments)
+- Python 3.9+
+- AWS account with S3 access
+- Required Python packages (see Installation)
 
 ### Installation
 
-1. Clone this repository
-2. Install dependencies:
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/llm-finetuning-pipeline.git
+   cd automatic-finetuning-pipeline
+   ```
+
+2. Set up a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-3. Initialize cloud infrastructure:
+
+4. Set up AWS credentials:
    ```bash
-   cd terraform
-   terraform init
-   terraform apply
-   ```
-4. Initialize DVC with cloud storage:
-   ```bash
-   dvc init
-   dvc remote add -d myremote s3://mybucket/dvcstore
+   export AWS_ACCESS_KEY_ID=your-access-key
+   export AWS_SECRET_ACCESS_KEY=your-secret-key
+   export AWS_REGION=your-region
    ```
 
-### Running the Cloud Pipeline
+   Alternatively, create a `.env` file with these variables.
 
-#### Data Processing
+### Configuration
 
-```bash
-dvc run -n process_data -d data/raw/training_data.jsonl -o data/processed/cleaned_data.jsonl python -m src.data.cleaner
+Edit `configs/data/data_processing.yaml` to customize the pipeline:
+
+```yaml
+# Data directories
+directories:
+  raw: "data/raw"
+  processed: "data/processed"
+  validation: "data/validation"
+
+# Model configuration
+model:
+  name: "Qwen/Qwen2.5-7B-Instruct"
+  max_length: 2048
+
+# S3 configuration
+s3:
+  default_bucket: "your-bucket-name"
+  region: "us-east-1"
 ```
 
-#### Launching Training Job
+## Usage
+
+### Setting Up DVC
+
+Initialize DVC and configure S3 storage:
 
 ```bash
-python -m src.cloud.submit_job --config configs/training/cloud_qlora_config.yaml
+python scripts/utils/setup_dvc.py --bucket your-bucket-name --dataset servicenow-qa --init
 ```
 
-#### Model Evaluation
+### Running the Pipeline
+
+Execute the complete pipeline with DVC:
 
 ```bash
-python -m src.model.evaluation --model-path s3://mybucket/models/adapters/llama_sft --data-path s3://mybucket/data/processed/validation.jsonl
+dvc repro
 ```
 
-#### Deployment
+Or run individual stages:
 
 ```bash
-kubectl apply -f kubernetes/model-deployment.yaml
+dvc repro download
+dvc repro convert
+dvc repro preprocess
+# etc.
 ```
 
-## Configuration Options
+### Using the CLI Directly
 
-The project uses YAML configuration files to control various aspects:
+You can also use the CLI interface directly:
 
-- `configs/data/`: Data processing parameters
-- `configs/model/`: Model-specific configurations
-- `configs/training/`: Training hyperparameters
-- `configs/cloud/`: Cloud infrastructure settings
-- `configs/deployment/`: Deployment settings
+```bash
+# Convert a dataset
+python -m src.cli.data_cli convert --dataset servicenow-qa --output servicenow-qa_converted --config configs/data/data_processing.yaml
 
-## Versioning
+# Run the complete pipeline
+python -m src.cli.data_cli run-pipeline --dataset servicenow-qa --config configs/data/data_processing.yaml
+```
 
-- **Data Versioning**: Using DVC with cloud storage backend
-- **Model Versioning**: Using MLflow to track models, parameters, and metrics
-- **Code Versioning**: Using Git for source control
-- **Infrastructure Versioning**: Using Terraform state files
+### Adding a New Dataset
 
-## Future Improvements
+1. Create a converter script in `scripts/dataset_converters/`:
+   ```python
+   # your_dataset_converter.py
+   import json
 
-- Add support for RLHF (Reinforcement Learning from Human Feedback)
-- Implement DPO (Direct Preference Optimization)
-- Add model quantization for inference
-- Implement cost optimization strategies
-- Add support for multi-region deployment
-- Implement advanced security measures
-- Add federated learning capabilities
+   def main():
+       # Read your dataset and convert to the required format
+       # Save to data/raw/your-dataset.json
+
+   if __name__ == "__main__":
+       main()
+   ```
+
+2. Update the DVC pipeline:
+   ```bash
+   python scripts/utils/setup_dvc.py --bucket your-bucket-name --dataset your-dataset-name
+   ```
+
+## Pipeline Stages
+
+1. **Download**: Download or prepare the raw dataset
+2. **Convert**: Convert to a standardized format with user/assistant messages
+3. **Preprocess**: Clean and normalize the text data
+4. **Validate**: Check data quality and format
+5. **Tokenize**: Tokenize data using the target model's tokenizer
+6. **Split**: Divide into train/validation/test sets
+
+## Testing
+
+Run the test suite with:
+
+```bash
+python -m pytest
+```
+
+## License
+
+
+## Acknowledgments
+
+- ServiceNow for the example dataset
+- Qwen for the tokenizer used in this example
+"
+
+
+Training stage 
+
+"
+
+
+
+python scripts/launch-a100-direct.py --gpu-count 1 --create-ssh
+
+
+ssh -i /Users/rahmanhajiyev/.ssh/lambda_lambda-key-1741732601 \
+    -o IdentitiesOnly=yes \
+    ubuntu@104.171.203.62
+
+
+
+git clone https://github.com/Hajiyevrehman/automatic-finetune.git
+
+
+cd automatic-finetune
+
+
+“# Extract IP address and SSH key path from the JSON file
+IP=$(grep -o '"ip_address": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
+KEY_PATH=$(grep -o '"ssh_key_path": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
+
+# Print values to verify
+echo "IP address: $IP"
+echo "SSH key path: $KEY_PATH"
+
+# Transfer the file with IdentitiesOnly option
+scp -i "$KEY_PATH" -o IdentitiesOnly=yes configs/training/llm_finetuning.yaml ubuntu@$IP:~/automatic-finetune/configs/training/llm_finetuning.yaml”
+
+./run_train.sh <- copy paste aws key, secret key, region
+
+
+
+"
