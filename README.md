@@ -53,7 +53,7 @@ A comprehensive, modular data pipeline for preparing datasets for fine-tuning La
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/llm-finetuning-pipeline.git
+   git clone https://github.com/Hajiyevrehman/llm-finetuning-pipeline.git
    cd automatic-finetuning-pipeline
    ```
 
