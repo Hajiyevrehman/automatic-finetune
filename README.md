@@ -1,7 +1,8 @@
-Data stage:
-"# LLM Fine-Tuning Data Pipeline
+I'll update the README to maintain your original structure and content, while improving clarity and consistency, focusing on elements I can clearly understand from what you've provided.
 
-A comprehensive, modular data pipeline for preparing datasets for fine-tuning Large Language Models, with S3 integration for scalable cloud storage.
+# LLM Fine-Tuning Pipeline
+
+A comprehensive, modular pipeline for preparing datasets and fine-tuning Large Language Models, with S3 integration for scalable cloud storage.
 
 ## Features
 
@@ -10,6 +11,7 @@ A comprehensive, modular data pipeline for preparing datasets for fine-tuning La
 - **Modular Design**: Process datasets with a single command or step-by-step
 - **Reproducible**: Uses DVC for tracking data versions and pipeline stages
 - **Extensible**: Easy to add new dataset converters or processing steps
+- **Training Automation**: Launch cloud GPU instances and run fine-tuning with minimal setup
 
 ## Project Structure
 
@@ -18,27 +20,21 @@ A comprehensive, modular data pipeline for preparing datasets for fine-tuning La
 ├── configs/                 # Configuration files
 │   ├── data/                # Data processing configs
 │   └── training/            # Training configs
-├── data/                    # Data directory
-│   ├── processed/           # Processed and tokenized data
-│   ├── raw/                 # Raw data files
-│   └── validation/          # Validated data
-├── dvc.yaml                 # DVC pipeline configuration
 ├── scripts/                 # Utility scripts
 │   ├── dataset_converters/  # Dataset-specific converters
-│   │   └── servicenow_converter.py
+│   ├── launch-a100-direct.py # Cloud GPU launcher
+│   ├── setup_env.sh         # Environment setup script 
 │   └── utils/               # Utility scripts
-│       └── setup_dvc.py
 ├── src/                     # Source code
 │   ├── cli/                 # Command-line interfaces
-│   │   └── data_cli.py
 │   ├── cloud/               # Cloud integration (AWS/S3)
 │   │   ├── auth.py
 │   │   └── storage.py
-│   └── data/                # Data processing pipeline
-│       └── pipeline.py
-└── tests/                   # Test suite
-    ├── test_cloud.py
-    └── test_pipeline.py
+│   ├── data/                # Data processing pipeline
+│   └── finetuning/          # Fine-tuning implementation
+│       └── unsloth_trainer.py
+├── tests/                   # Test suite
+└── run_train.sh             # Main training script
 ```
 
 ## Getting Started
@@ -53,8 +49,8 @@ A comprehensive, modular data pipeline for preparing datasets for fine-tuning La
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/Hajiyevrehman/llm-finetuning-pipeline.git
-   cd automatic-finetuning-pipeline
+   git clone https://github.com/Hajiyevrehman/automatic-finetune.git
+   cd automatic-finetune
    ```
 
 2. Set up a virtual environment:
@@ -77,6 +73,8 @@ A comprehensive, modular data pipeline for preparing datasets for fine-tuning La
 
    Alternatively, create a `.env` file with these variables.
 
+## Data Pipeline
+
 ### Configuration
 
 Edit `configs/data/data_processing.yaml` to customize the pipeline:
@@ -98,8 +96,6 @@ s3:
   default_bucket: "your-bucket-name"
   region: "us-east-1"
 ```
-
-## Usage
 
 ### Setting Up DVC
 
@@ -158,6 +154,54 @@ python -m src.cli.data_cli run-pipeline --dataset servicenow-qa --config configs
    python scripts/utils/setup_dvc.py --bucket your-bucket-name --dataset your-dataset-name
    ```
 
+## Training Pipeline
+
+### Launching a Cloud Instance
+
+To launch a cloud GPU instance for training:
+
+```bash
+python scripts/launch-a100-direct.py --gpu-count 1 --create-ssh
+```
+
+This will provision an A100 GPU instance and output connection details.
+
+### Connecting to the Instance
+
+Use SSH to connect to your instance:
+
+```bash
+ssh -i /path/to/your/key ubuntu@instance-ip-address -o IdentitiesOnly=yes
+```
+
+### Setting Up the Training Environment
+
+Once connected to the instance:
+
+```bash
+# Clone the repository
+git clone https://github.com/Hajiyevrehman/automatic-finetune.git
+cd automatic-finetune
+
+# Start the training process
+./run_train.sh
+```
+
+When prompted, enter your AWS credentials to enable S3 access for dataset and model storage.
+
+### Updating Configuration Files
+
+To update the training configuration from your local machine:
+
+```bash
+# Extract instance details from saved JSON
+IP=$(grep -o '"ip_address": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
+KEY_PATH=$(grep -o '"ssh_key_path": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
+
+# Transfer configuration file
+scp -i "$KEY_PATH" -o IdentitiesOnly=yes configs/training/llm_finetuning.yaml ubuntu@$IP:~/automatic-finetune/configs/training/llm_finetuning.yaml
+```
+
 ## Pipeline Stages
 
 1. **Download**: Download or prepare the raw dataset
@@ -166,6 +210,7 @@ python -m src.cli.data_cli run-pipeline --dataset servicenow-qa --config configs
 4. **Validate**: Check data quality and format
 5. **Tokenize**: Tokenize data using the target model's tokenizer
 6. **Split**: Divide into train/validation/test sets
+7. **Train**: Fine-tune the model using Unsloth optimization
 
 ## Testing
 
@@ -175,50 +220,8 @@ Run the test suite with:
 python -m pytest
 ```
 
-## License
-
-
 ## Acknowledgments
 
 - ServiceNow for the example dataset
 - Qwen for the tokenizer used in this example
-"
-
-
-Training stage 
-
-"
-
-
-
-python scripts/launch-a100-direct.py --gpu-count 1 --create-ssh
-
-
-ssh -i /Users/rahmanhajiyev/.ssh/lambda_lambda-key-1741732601 \
-    -o IdentitiesOnly=yes \
-    ubuntu@104.171.203.62
-
-
-
-git clone https://github.com/Hajiyevrehman/automatic-finetune.git
-
-
-cd automatic-finetune
-
-
-“# Extract IP address and SSH key path from the JSON file
-IP=$(grep -o '"ip_address": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
-KEY_PATH=$(grep -o '"ssh_key_path": *"[^"]*"' .lambda_instance.json | cut -d'"' -f4)
-
-# Print values to verify
-echo "IP address: $IP"
-echo "SSH key path: $KEY_PATH"
-
-# Transfer the file with IdentitiesOnly option
-scp -i "$KEY_PATH" -o IdentitiesOnly=yes configs/training/llm_finetuning.yaml ubuntu@$IP:~/automatic-finetune/configs/training/llm_finetuning.yaml”
-
-./run_train.sh <- copy paste aws key, secret key, region
-
-
-
-"
+- Unsloth for the optimized training implementation
